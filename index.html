@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>菊島漫遊指揮中心</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Outfit', 'sans-serif'],
+                    },
+                    colors: {
+                        ocean: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            200: '#bae6fd',
+                            300: '#7dd3fc',
+                            400: '#38bdf8',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                            700: '#0369a1',
+                            800: '#075985',
+                            900: '#0c4a6e',
+                        },
+                        sand: '#f8fafc',
+                        surface: '#ffffff',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            -webkit-tap-highlight-color: transparent;
+            overscroll-behavior-y: none;
+            background-color: #f1f5f9;
+        }
+
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+        .pt-safe { padding-top: env(safe-area-inset-top); }
+
+        .fade-in { animation: fadeIn 0.2s ease-in-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .modal-enter { transform: translateY(100%); }
+        .modal-enter-active {
+            transform: translateY(0);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+    </style>
+</head>
+
+<body class="text-slate-800 antialiased h-screen flex flex-col overflow-hidden bg-slate-50">
+
+    <!-- Main Content Area / Router View -->
+    <main id="app" class="flex-1 overflow-y-auto no-scrollbar pb-24 pt-safe relative">
+        <!-- Dynamic Content Injected Here -->
+    </main>
+
+    <!-- Bottom Navigation Bar -->
+    <nav
+        class="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] pb-safe z-50">
+        <div class="flex justify-around items-center h-16 max-w-md mx-auto">
+            <button onclick="router.navigate('dashboard')"
+                class="nav-btn w-full h-full flex flex-col items-center justify-center text-slate-400 hover:text-ocean-600 active:text-ocean-700 transition-colors"
+                data-target="dashboard">
+                <i class="fa-solid fa-compass text-xl mb-1"></i>
+                <span class="text-[10px] font-medium tracking-wide">儀表板</span>
+            </button>
+            <button onclick="router.navigate('schedule')"
+                class="nav-btn w-full h-full flex flex-col items-center justify-center text-slate-400 hover:text-ocean-600 active:text-ocean-700 transition-colors"
+                data-target="schedule">
+                <i class="fa-solid fa-timeline text-xl mb-1"></i>
+                <span class="text-[10px] font-medium tracking-wide">行程</span>
+            </button>
+            <button onclick="router.navigate('resources')"
+                class="nav-btn w-full h-full flex flex-col items-center justify-center text-slate-400 hover:text-ocean-600 active:text-ocean-700 transition-colors"
+                data-target="resources">
+                <i class="fa-solid fa-map-location-dot text-xl mb-1"></i>
+                <span class="text-[10px] font-medium tracking-wide">攻略</span>
+            </button>
+            <button onclick="router.navigate('accounting')"
+                class="nav-btn w-full h-full flex flex-col items-center justify-center text-slate-400 hover:text-ocean-600 active:text-ocean-700 transition-colors"
+                data-target="accounting">
+                <i class="fa-solid fa-wallet text-xl mb-1"></i>
+                <span class="text-[10px] font-medium tracking-wide">記帳</span>
+            </button>
+            <button onclick="router.navigate('info')"
+                class="nav-btn w-full h-full flex flex-col items-center justify-center text-slate-400 hover:text-ocean-600 active:text-ocean-700 transition-colors"
+                data-target="info">
+                <i class="fa-solid fa-shield-heart text-xl mb-1"></i>
+                <span class="text-[10px] font-medium tracking-wide">資訊</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Modal Overlay (Generic) -->
+    <div id="modal-container" class="hidden fixed inset-0 z-[60]" role="dialog" aria-modal="true">
+        <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onclick="closeModal()"></div>
+        <div id="modal-content"
+            class="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-xl max-h-[90vh] overflow-y-auto pb-safe modal-enter transition-transform duration-300">
+            <!-- Modal Content Injected Here -->
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // DATA STORE
+        // ==========================================
+        const DATA = {
+            config: {
+                tripName: "菊島漫遊 · Penghu 2026",
+                currency: "TWD",
+                tripStart: "2026-06-26",
+                tripEnd: "2026-06-29",
+                travelers: 2
+            },
+            // Actual booking from 易遊網 立榮假期
+            booking: {
+                vendor: "易遊網 · 立榮假期",
+                totalAmount: 14219,
+                outbound: {
+                    flight: "B7-8617",
+                    from: "臺北松山機場 TSA",
+                    to: "澎湖機場 MZG",
+                    depart: "2026/06/26 13:55",
+                    arrive: "2026/06/26 14:45"
+                },
+                inbound: {
+                    flight: "B7-8610",
+                    from: "澎湖機場 MZG",
+                    to: "臺北松山機場 TSA",
+                    depart: "2026/06/29 12:15",
+                    arrive: "2026/06/29 13:05"
+                },
+                notice: "促銷票，限當日當班次有效，不可更換航班",
+                hotel: {
+                    name: "澎湖左轉休閒民宿",
+                    nameEn: "Turn Left Leisure Homestay",
+                    rating: 4,
+                    address: "澎湖縣馬公市西文里新生路380號",
+                    checkIn: "2026/06/26",
+                    checkOut: "2026/06/29",
+                    nights: 3,
+                    room: "雙人房 (一大床) x 1，不含早餐",
+                    guests: "成人 x 2"
+                }
+            },
+            schedule: [
+                // ===== Day 1: 6/26 (Fri) - 抵達 =====
+                { id: 101, day: 1, date: "6/26", time: "13:00", endTime: "13:55", title: "松山機場集合 · 報到", location: "臺北松山機場", type: "logistics", pic: "兩人", notes: "B7-8617 立榮航空 13:55 起飛，建議提前 1 小時抵達" },
+                { id: 102, day: 1, date: "6/26", time: "13:55", endTime: "14:45", title: "飛抵澎湖 ✈", location: "TSA → MZG", type: "transport", pic: "兩人", notes: "B7-8617 立榮航空，飛行約 50 分鐘" },
+                { id: 103, day: 1, date: "6/26", time: "15:00", endTime: "16:00", title: "領機車 · Check-in 民宿", location: "馬公·新生路380號", type: "logistics", pic: "兩人", notes: "澎湖左轉休閒民宿，租車店家機場接送" },
+                { id: 104, day: 1, date: "6/26", time: "16:30", endTime: "18:00", title: "中央老街 · 四眼井 · 天后宮", location: "馬公市區", type: "activity", pic: "兩人", notes: "步行漫遊馬公歷史街區，順吃二信飯糰、易家仙人掌冰" },
+                { id: 105, day: 1, date: "6/26", time: "18:00", endTime: "19:00", title: "觀音亭親水園區 · 西瀛虹橋觀夕", location: "觀音亭", type: "activity", pic: "兩人", notes: "欣賞西嶼落日，黃昏色彩極美" },
+                { id: 106, day: 1, date: "6/26", time: "19:00", endTime: "20:30", title: "小紅莓海鮮石頭火鍋 (晚餐)", location: "馬公·火鍋", type: "food", pic: "兩人", notes: "預算 $400/人。必點炸狗蝦 — 澎湖限定鮮味" },
+                { id: 107, day: 1, date: "6/26", time: "21:00", endTime: "22:00", title: "澎湖花火節 (週一週四施放)", location: "觀音亭", type: "activity", pic: "兩人", notes: "6/26 為週五，當週可能無施放，以官網公告為準。可改為觀音亭散步看夜景" },
+
+                // ===== Day 2: 6/27 (Sat) - 東邊 湖西 =====
+                { id: 201, day: 2, date: "6/27", time: "07:30", endTime: "08:30", title: "北新橋牛雜湯 (早餐)", location: "文康街", type: "food", pic: "兩人", notes: "文康街早餐街招牌，動線俐落、晚到常常售罄" },
+                { id: 202, day: 2, date: "6/27", time: "09:00", endTime: "11:30", title: "山水沙灘浮潛體驗", location: "澎南·山水沙灘", type: "activity", pic: "兩人", notes: "潮間帶浮潛 + 跳水 + 海底郵筒，2 小時 · $800/人 (含教練+裝備+拍照)" },
+                { id: 203, day: 2, date: "6/27", time: "12:30", endTime: "14:00", title: "龍門海鮮 (午餐)", location: "湖西·海鮮合菜", type: "food", pic: "兩人", notes: "預算 $600/人。水晶小管、味噌烤土魠魚必點" },
+                { id: 204, day: 2, date: "6/27", time: "14:30", endTime: "16:00", title: "奎壁山摩西分海 (依潮汐)", location: "湖西", type: "activity", pic: "兩人", notes: "退潮時赤嶼步道現身，聖經故事般景象，記得查潮汐表" },
+                { id: 205, day: 2, date: "6/27", time: "16:30", endTime: "18:00", title: "南寮古厝 · 菓葉灰窯", location: "湖西", type: "activity", pic: "兩人", notes: "近期爆紅秘境：彩色浮球漁具 + 灰窯碉堡，IG 打卡熱點" },
+                { id: 206, day: 2, date: "6/27", time: "18:30", endTime: "21:00", title: "海上皇宮海洋牧場 (晚餐)", location: "海洋牧場", type: "food", pic: "兩人", notes: "預算 $600/人。水上餐廳鮮蚵燒烤吃到飽 + 海鮮粥無限續，可釣魚體驗" },
+
+                // ===== Day 3: 6/28 (Sun) - 西邊 西嶼 =====
+                { id: 301, day: 3, date: "6/28", time: "07:30", endTime: "08:30", title: "香亭土魠魚羹 (早餐)", location: "文康街", type: "food", pic: "兩人", notes: "魚塊現裹粉下鍋，湯頭微勾芡帶高麗菜清甜" },
+                { id: 302, day: 3, date: "6/28", time: "09:00", endTime: "10:30", title: "跨海大橋 · 通樑古榕", location: "白沙", type: "activity", pic: "兩人", notes: "澎湖最具代表性的地標，順遊 300 年古榕" },
+                { id: 303, day: 3, date: "6/28", time: "11:00", endTime: "12:00", title: "二崁古厝聚落 · 二崁傳香", location: "西嶼", type: "activity", pic: "兩人", notes: "400 年澎湖特色古厝，巷弄裡藏滿古早味小吃" },
+                { id: 304, day: 3, date: "6/28", time: "12:30", endTime: "14:00", title: "阿挺海鮮 (午餐)", location: "西嶼·海鮮", type: "food", pic: "兩人", notes: "預算 $500/人。西嶼鯨魚洞 40 年老店，招牌墨魚小管麵線" },
+                { id: 305, day: 3, date: "6/28", time: "14:30", endTime: "16:30", title: "鯨魚洞 · 池西岩瀑 · 大菓葉玄武岩", location: "西嶼", type: "activity", pic: "兩人", notes: "西嶼地質景觀三連發，黃褐色玄武岩前低窪水池倒影超夢幻" },
+                { id: 306, day: 3, date: "6/28", time: "17:00", endTime: "18:30", title: "外垵漁港 · 漁翁島燈塔", location: "西嶼", type: "activity", pic: "兩人", notes: "台灣最早建造的西式燈塔，黃昏景色絕美" },
+                { id: 307, day: 3, date: "6/28", time: "19:30", endTime: "21:30", title: "福朋喜來登 · 聚味軒 (晚餐)", location: "馬公·五星", type: "food", pic: "兩人", notes: "預算 $800/人。五星飯店海鮮中餐廳，CP 值比本島五星高很多" },
+
+                // ===== Day 4: 6/29 (Mon) - 返程 =====
+                { id: 401, day: 4, date: "6/29", time: "08:00", endTime: "09:00", title: "益豐豆漿 / 鐘記燒餅 (早餐)", location: "文康街", type: "food", pic: "兩人", notes: "文康街早餐二選一，趁機把街上沒吃到的補完" },
+                { id: 402, day: 4, date: "6/29", time: "09:00", endTime: "10:00", title: "篤行十村文創園區", location: "馬公·文青", type: "activity", pic: "兩人", notes: "馬公市區眷村改建，張雨生 / 潘安邦故居" },
+                { id: 403, day: 4, date: "6/29", time: "10:00", endTime: "10:45", title: "名產採買 · 還車", location: "馬公市區", type: "logistics", pic: "兩人", notes: "黑糖糕、花生酥、風茹茶 — 黑糖糕當天口感最好，長程選真空包" },
+                { id: 404, day: 4, date: "6/29", time: "10:45", endTime: "12:15", title: "馬公機場 · 報到候機", location: "澎湖機場 MZG", type: "logistics", pic: "兩人", notes: "B7-8610 起飛前 1 小時抵達，還車店家會送機" },
+                { id: 405, day: 4, date: "6/29", time: "12:15", endTime: "13:05", title: "返航松山 ✈", location: "MZG → TSA", type: "transport", pic: "兩人", notes: "B7-8610 立榮航空，飛行約 50 分鐘" }
+            ],
+            // 機車租借選項
+            scooters: [
+                { id: "s1", name: "艾維士電動車", price: 500, detail: "澎湖最大電動車行 · 送旅平險 · 馬公港口", tag: "首選" },
+                { id: "s2", name: "Gogoout 電動機車", price: 450, detail: "線上預訂、刷卡付費、價格透明不踩雷", tag: "便利" },
+                { id: "s3", name: "日展租車行", price: 400, detail: "機場接送 · 老字號 · 飯店送車到府", tag: "便宜" },
+                { id: "s4", name: "六合租車", price: 420, detail: "易遊網合作店家 · 線上預訂可比價", tag: "彈性" }
+            ],
+            // 浮潛行程
+            snorkel: {
+                title: "陽光阿有專業浮潛",
+                location: "山水沙灘",
+                duration: "約 2 小時",
+                price: 800,
+                includes: "裝備 + 教練 + 拍照",
+                suggest: "Day 2 上午",
+                advanced: "進階：南方四島藍洞浮潛一日遊 (整天約 $2,500/人，需搭船 1.5 小時)，適合想看「海底薰衣草森林」紫色珊瑚礁的旅人。"
+            },
+            // 美食重點
+            foodHighlights: [
+                { name: "小紅莓海鮮石頭火鍋", area: "馬公", item: "炸狗蝦", price: 400 },
+                { name: "龍門海鮮", area: "湖西", item: "水晶小管、味噌烤土魠魚", price: 600 },
+                { name: "海上皇宮海洋牧場", area: "海洋牧場", item: "鮮蚵燒烤吃到飽 + 海鮮粥", price: 600 },
+                { name: "阿挺海鮮", area: "西嶼", item: "墨魚小管麵線", price: 500 },
+                { name: "福朋喜來登 聚味軒", area: "馬公", item: "五星海鮮中餐", price: 800 },
+                { name: "澎漁宴", area: "馬公", item: "米其林一星 · 海膽仙人掌炒飯", price: 700 }
+            ],
+            accounting: {
+                totalBudget: 36000, // TWD 2 人 4 天預算
+                expenses: []
+            },
+            emergency: [
+                { name: "澎湖縣警察局 馬公分局", phone: "06-9272105" },
+                { name: "澎湖三軍總醫院", phone: "06-9211116" },
+                { name: "澎湖機場 (MZG)", phone: "06-9229123" },
+                { name: "立榮航空客服", phone: "02-25086999" },
+                { name: "易遊網 24h 客服", phone: "02-77287000" },
+                { name: "澎湖左轉休閒民宿", phone: "06-9266516" }
+            ]
+        };
+
+        // ==========================================
+        // STATE
+        // ==========================================
+        const State = {
+            currentTab: 'dashboard',
+            expenses: JSON.parse(localStorage.getItem('penghu_expenses') || '[]')
+        };
+
+        // ==========================================
+        // ROUTER
+        // ==========================================
+        const router = {
+            navigate: (page) => {
+                State.currentTab = page;
+
+                const app = document.getElementById('app');
+                app.innerHTML = pages[page]();
+                app.scrollTop = 0;
+
+                document.querySelectorAll('.nav-btn').forEach(btn => {
+                    const icon = btn.querySelector('i');
+                    if (btn.dataset.target === page) {
+                        btn.classList.add('text-ocean-600');
+                        btn.classList.remove('text-slate-400');
+                        icon.classList.add('fa-bounce');
+                        setTimeout(() => icon.classList.remove('fa-bounce'), 500);
+                    } else {
+                        btn.classList.remove('text-ocean-600');
+                        btn.classList.add('text-slate-400');
+                    }
+                });
+
+                if (page === 'schedule') initSchedule();
+            }
+        };
+
+        // ==========================================
+        // PAGE TEMPLATES
+        // ==========================================
+        const pages = {
+            dashboard: () => {
+                const now = new Date();
+                const currentHour = now.getHours();
+                const currentMinute = now.getMinutes();
+                const currentTimeVal = currentHour * 60 + currentMinute;
+
+                const timeStr = now.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
+                const dateStr = now.toLocaleDateString('zh-TW', { month: 'long', day: 'numeric', weekday: 'short' });
+
+                const parseTime = (t) => {
+                    const [h, m] = t.split(':').map(Number);
+                    return h * 60 + m;
+                };
+
+                // Trip start: 2026-06-26 (Day 1)
+                const tripStartDate = new Date(2026, 5, 26); // June (month 5, 0-indexed)
+                const startMidnight = new Date(tripStartDate);
+                startMidnight.setHours(0, 0, 0, 0);
+                const nowMidnight = new Date(now);
+                nowMidnight.setHours(0, 0, 0, 0);
+                const diffTime = nowMidnight - startMidnight;
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                let day = diffDays + 1;
+                if (day < 1 || day > 4) day = -1;
+
+                // Countdown to trip
+                const msToTrip = startMidnight - nowMidnight;
+                const daysToTrip = Math.ceil(msToTrip / (1000 * 60 * 60 * 24));
+
+                let currentActivity = null;
+                let nextActivity = null;
+                if (day > 0) {
+                    currentActivity = DATA.schedule.find(s => {
+                        if (s.day !== day) return false;
+                        const start = parseTime(s.time);
+                        const end = parseTime(s.endTime);
+                        return currentTimeVal >= start && currentTimeVal < end;
+                    });
+                    nextActivity = DATA.schedule.find(s => {
+                        if (s.day !== day) return false;
+                        const start = parseTime(s.time);
+                        return start > currentTimeVal;
+                    });
+                }
+
+                let greeting = "早安";
+                if (currentHour >= 12 && currentHour < 18) greeting = "午安";
+                else if (currentHour >= 18) greeting = "晚安";
+
+                // Countdown card OR current activity card
+                let heroCard;
+                if (day < 0 && daysToTrip > 0) {
+                    heroCard = `<div class="bg-gradient-to-br from-ocean-500 to-ocean-700 rounded-2xl p-6 text-white shadow-lg shadow-ocean-200 mb-6 relative overflow-hidden">
+                        <div class="absolute top-0 right-0 p-4 opacity-20"><i class="fa-solid fa-umbrella-beach text-8xl"></i></div>
+                        <div class="relative z-10">
+                            <p class="uppercase tracking-wider text-[10px] font-bold opacity-80 mb-1">距離出發還有</p>
+                            <h2 class="text-5xl font-bold mb-1 leading-tight">${daysToTrip} <span class="text-2xl font-medium">天</span></h2>
+                            <p class="text-ocean-50 text-sm mb-4">2026/06/26 · 立榮 B7-8617 · 13:55 起飛</p>
+                            <button onclick="router.navigate('schedule')" class="bg-white/20 hover:bg-white/30 backdrop-blur text-sm font-semibold py-2 px-4 rounded-lg transition">
+                                <i class="fa-solid fa-list-check mr-1"></i> 查看完整行程
+                            </button>
+                        </div>
+                    </div>`;
+                } else if (currentActivity) {
+                    heroCard = `<div class="bg-gradient-to-br from-ocean-500 to-ocean-600 rounded-2xl p-6 text-white shadow-lg shadow-ocean-200 mb-6 relative overflow-hidden">
+                        <div class="absolute top-0 right-0 p-4 opacity-20"><i class="fa-solid fa-person-running text-8xl"></i></div>
+                        <div class="relative z-10">
+                            <div class="flex items-center space-x-2 opacity-90 mb-1">
+                                <span class="uppercase tracking-wider text-[10px] font-bold bg-white/20 px-2 py-0.5 rounded shadow-sm animate-pulse">正在進行</span>
+                                <span class="text-sm font-medium"><i class="fa-regular fa-clock mr-1"></i>${currentActivity.time} - ${currentActivity.endTime}</span>
+                            </div>
+                            <h2 class="text-3xl font-bold mb-1 leading-tight">${currentActivity.title}</h2>
+                            <p class="text-ocean-50 mb-2 flex items-center"><i class="fa-solid fa-location-dot mr-2"></i> ${currentActivity.location}</p>
+                            ${currentActivity.notes ? `<p class="text-ocean-50/90 text-sm">${currentActivity.notes}</p>` : ''}
+                        </div>
+                    </div>`;
+                } else if (day > 0) {
+                    heroCard = `<div class="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm mb-6 flex items-center justify-between">
+                        <div>
+                            <h3 class="font-bold text-slate-800 text-lg">目前沒有行程</h3>
+                            <p class="text-slate-500 text-sm">好好享受空檔，或翻翻下一個目標！</p>
+                        </div>
+                        <div class="h-12 w-12 rounded-full bg-slate-50 flex items-center justify-center text-slate-300">
+                            <i class="fa-solid fa-mug-hot text-xl"></i>
+                        </div>
+                    </div>`;
+                } else {
+                    heroCard = `<div class="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm mb-6 text-center">
+                        <i class="fa-solid fa-heart text-3xl text-rose-300 mb-2"></i>
+                        <h3 class="font-bold text-slate-800 text-lg">旅程已結束</h3>
+                        <p class="text-slate-500 text-sm">期待下次再會～</p>
+                    </div>`;
+                }
+
+                const nextCard = nextActivity
+                    ? `<div class="bg-white rounded-xl p-5 border border-slate-100 shadow-sm mb-6 flex items-center justify-between active:scale-[0.99] transition-transform cursor-pointer" onclick="router.navigate('schedule')">
+                        <div>
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">下一個活動</p>
+                            <h3 class="text-lg font-bold text-slate-800">${nextActivity.title}</h3>
+                            <p class="text-sm text-ocean-600 font-medium">${nextActivity.time} @ ${nextActivity.location}</p>
+                        </div>
+                        <div class="h-10 w-10 bg-ocean-50 rounded-full flex items-center justify-center text-ocean-500">
+                            <i class="fa-solid fa-chevron-right"></i>
+                        </div>
+                    </div>`
+                    : '';
+
+                // Booking summary card
+                const b = DATA.booking;
+                const bookingCard = `<div class="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm mb-6">
+                    <div class="flex justify-between items-start mb-3">
+                        <div>
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">已訂購 · ${b.vendor}</p>
+                            <h3 class="font-bold text-slate-800 text-base">機票 + 飯店</h3>
+                        </div>
+                        <span class="text-lg font-mono font-bold text-ocean-600">TWD ${b.totalAmount.toLocaleString()}</span>
+                    </div>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex items-center text-slate-600">
+                            <i class="fa-solid fa-plane-departure w-5 text-ocean-500"></i>
+                            <span class="ml-2">${b.outbound.flight} · ${b.outbound.depart.slice(5)}</span>
+                        </div>
+                        <div class="flex items-center text-slate-600">
+                            <i class="fa-solid fa-plane-arrival w-5 text-ocean-500"></i>
+                            <span class="ml-2">${b.inbound.flight} · ${b.inbound.depart.slice(5)}</span>
+                        </div>
+                        <div class="flex items-center text-slate-600">
+                            <i class="fa-solid fa-hotel w-5 text-ocean-500"></i>
+                            <span class="ml-2">${b.hotel.name} · ${b.hotel.nights} 晚</span>
+                        </div>
+                    </div>
+                    <button onclick="router.navigate('info')" class="w-full mt-4 text-xs font-bold text-ocean-600 hover:text-ocean-700">
+                        查看完整訂購資訊 →
+                    </button>
+                </div>`;
+
+                return `
+                <div class="fade-in max-w-md mx-auto min-h-screen pb-20 px-6">
+                    <!-- Header -->
+                    <header class="bg-transparent sticky top-0 z-20 py-4 mb-2 flex justify-between items-end">
+                        <div>
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">${dateStr}</p>
+                            <h1 class="text-2xl font-bold text-slate-800">${greeting}，旅人</h1>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-3xl font-mono font-bold text-ocean-600 leading-none">${timeStr}</div>
+                            <div class="text-[10px] text-slate-400 font-medium mt-1">${day > 0 ? `Day ${day}` : (day < 0 && daysToTrip > 0 ? '出發前' : '旅程結束')}</div>
+                        </div>
+                    </header>
+
+                    ${heroCard}
+                    ${nextCard}
+                    ${bookingCard}
+
+                    <h3 class="font-bold text-slate-800 mb-4 px-1">快速功能</h3>
+                    <div class="grid grid-cols-2 gap-4 mb-8">
+                        <button onclick="router.navigate('schedule')" class="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center justify-center gap-3 active:scale-95 transition-transform hover:shadow-md">
+                            <div class="h-12 w-12 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center text-xl">
+                                <i class="fa-solid fa-list-check"></i>
+                            </div>
+                            <span class="font-semibold text-sm text-slate-700">4 日行程</span>
+                        </button>
+                        <button onclick="router.navigate('resources')" class="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center justify-center gap-3 active:scale-95 transition-transform hover:shadow-md">
+                            <div class="h-12 w-12 rounded-full bg-emerald-50 text-emerald-500 flex items-center justify-center text-xl">
+                                <i class="fa-solid fa-map-location-dot"></i>
+                            </div>
+                            <span class="font-semibold text-sm text-slate-700">景點 · 美食</span>
+                        </button>
+                        <button onclick="router.navigate('accounting')" class="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center justify-center gap-3 active:scale-95 transition-transform hover:shadow-md">
+                            <div class="h-12 w-12 rounded-full bg-violet-50 text-violet-500 flex items-center justify-center text-xl">
+                                <i class="fa-solid fa-receipt"></i>
+                            </div>
+                            <span class="font-semibold text-sm text-slate-700">記一筆</span>
+                        </button>
+                        <button onclick="router.navigate('info')" class="bg-rose-50/30 p-4 rounded-xl shadow-sm border border-rose-100 flex flex-col items-center justify-center gap-3 active:scale-95 transition-transform hover:bg-rose-50/50">
+                            <div class="h-12 w-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-xl">
+                                <i class="fa-solid fa-phone-volume"></i>
+                            </div>
+                            <span class="font-semibold text-sm text-rose-700">緊急聯絡</span>
+                        </button>
+                    </div>
+                </div>
+                `;
+            },
+
+            schedule: () => {
+                return `
+                <div class="fade-in max-w-md mx-auto min-h-screen bg-slate-50">
+                    <header class="bg-white sticky top-0 z-30 shadow-sm border-b border-slate-100">
+                        <div class="px-6 py-4 pb-2">
+                            <h1 class="text-xl font-bold mb-1">行程總覽</h1>
+                            <p class="text-xs text-slate-400">2026/06/26 - 06/29 · 4 天 3 夜</p>
+                        </div>
+                        <div id="schedule-tabs" class="flex overflow-x-auto no-scrollbar px-4 pb-3 gap-2 snap-x"></div>
+                    </header>
+
+                    <div class="p-6 relative min-h-[500px]">
+                        <div class="absolute left-[42px] top-6 bottom-6 w-0.5 bg-slate-200"></div>
+                        <div id="schedule-list" class="space-y-3 pb-20"></div>
+                    </div>
+                </div>
+                `;
+            },
+
+            resources: () => {
+                const b = DATA.booking;
+                const bookingHtml = `
+                <div class="bg-gradient-to-br from-ocean-500 to-ocean-700 rounded-2xl p-5 text-white shadow-lg shadow-ocean-200 mb-6 relative overflow-hidden">
+                    <div class="absolute top-0 right-0 p-4 opacity-20"><i class="fa-solid fa-ticket text-7xl"></i></div>
+                    <div class="relative z-10">
+                        <p class="uppercase tracking-wider text-[10px] font-bold opacity-80 mb-1">${b.vendor}</p>
+                        <h3 class="text-xl font-bold mb-3">機票 + 飯店</h3>
+
+                        <div class="bg-white/10 rounded-xl p-3 mb-3 backdrop-blur">
+                            <div class="flex items-center justify-between text-sm font-semibold mb-1">
+                                <span><i class="fa-solid fa-plane-departure mr-1"></i> 去程</span>
+                                <span class="font-mono">${b.outbound.flight}</span>
+                            </div>
+                            <div class="text-xs text-ocean-50 leading-relaxed">
+                                ${b.outbound.from} → ${b.outbound.to}<br>
+                                ${b.outbound.depart} → ${b.outbound.arrive}
+                            </div>
+                        </div>
+
+                        <div class="bg-white/10 rounded-xl p-3 mb-3 backdrop-blur">
+                            <div class="flex items-center justify-between text-sm font-semibold mb-1">
+                                <span><i class="fa-solid fa-plane-arrival mr-1"></i> 回程</span>
+                                <span class="font-mono">${b.inbound.flight}</span>
+                            </div>
+                            <div class="text-xs text-ocean-50 leading-relaxed">
+                                ${b.inbound.from} → ${b.inbound.to}<br>
+                                ${b.inbound.depart} → ${b.inbound.arrive}
+                            </div>
+                        </div>
+
+                        <div class="bg-amber-400/20 border border-amber-300/40 rounded-lg p-2 mb-3 text-xs text-amber-50 flex items-start gap-2">
+                            <i class="fa-solid fa-circle-exclamation mt-0.5"></i>
+                            <span>${b.notice}</span>
+                        </div>
+
+                        <div class="bg-white/10 rounded-xl p-3 mb-4 backdrop-blur">
+                            <div class="flex items-center justify-between text-sm font-semibold mb-1">
+                                <span><i class="fa-solid fa-hotel mr-1"></i> ${b.hotel.name}</span>
+                                <span class="text-amber-200">${'★'.repeat(b.hotel.rating)}</span>
+                            </div>
+                            <div class="text-xs text-ocean-50 leading-relaxed">
+                                ${b.hotel.nameEn}<br>
+                                ${b.hotel.address}<br>
+                                入住 ${b.hotel.checkIn} → 退房 ${b.hotel.checkOut} (${b.hotel.nights} 晚)<br>
+                                ${b.hotel.room} · ${b.hotel.guests}
+                            </div>
+                        </div>
+
+                        <div class="flex justify-between items-end pt-3 border-t border-white/20">
+                            <span class="text-xs uppercase tracking-widest opacity-80">總金額</span>
+                            <span class="text-2xl font-mono font-bold">TWD ${b.totalAmount.toLocaleString()}</span>
+                        </div>
+                    </div>
+                </div>`;
+
+                // Scooter options
+                const scootersHtml = DATA.scooters.map((s, i) => `
+                    <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-100 mb-3 flex items-center gap-4">
+                        <div class="h-10 w-10 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center font-bold text-sm shrink-0">
+                            ${String(i + 1).padStart(2, '0')}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-2 mb-1">
+                                <h4 class="font-bold text-slate-800 text-sm">${s.name}</h4>
+                                <span class="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold">${s.tag}</span>
+                            </div>
+                            <p class="text-xs text-slate-500 leading-snug">${s.detail}</p>
+                        </div>
+                        <div class="text-right shrink-0">
+                            <div class="font-mono font-bold text-ocean-600">$${s.price}</div>
+                            <div class="text-[10px] text-slate-400">/天</div>
+                        </div>
+                    </div>
+                `).join('');
+
+                // Snorkel card
+                const sn = DATA.snorkel;
+                const snorkelHtml = `
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-6">
+                    <div class="bg-gradient-to-br from-ocean-500 to-ocean-700 text-white p-5 relative overflow-hidden">
+                        <div class="absolute top-2 right-2 text-4xl opacity-30">🐠</div>
+                        <p class="uppercase tracking-wider text-[10px] font-bold opacity-80 mb-1">浮潛體驗</p>
+                        <h3 class="text-xl font-bold mb-1">${sn.title}</h3>
+                        <p class="text-xs text-ocean-50">不用搭船 · 全程教練陪同</p>
+                    </div>
+                    <div class="p-5 space-y-2 text-sm">
+                        <div class="flex justify-between"><span class="text-slate-500">地點</span><span class="font-semibold text-slate-800">${sn.location}</span></div>
+                        <div class="flex justify-between"><span class="text-slate-500">時長</span><span class="font-semibold text-slate-800">${sn.duration}</span></div>
+                        <div class="flex justify-between"><span class="text-slate-500">費用</span><span class="font-mono font-bold text-rose-500">NT$ ${sn.price} / 人</span></div>
+                        <div class="flex justify-between"><span class="text-slate-500">包含</span><span class="font-semibold text-slate-800 text-right">${sn.includes}</span></div>
+                        <div class="flex justify-between"><span class="text-slate-500">建議</span><span class="font-semibold text-ocean-600">${sn.suggest}</span></div>
+                    </div>
+                    <div class="bg-slate-50 px-5 py-3 text-xs text-slate-600 leading-relaxed border-t border-slate-100">
+                        ${sn.advanced}
+                    </div>
+                </div>`;
+
+                // Food highlights
+                const foodHtml = DATA.foodHighlights.map(f => `
+                    <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-100 mb-3 flex items-center gap-4">
+                        <div class="h-10 w-10 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center shrink-0">
+                            <i class="fa-solid fa-utensils"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <h4 class="font-bold text-slate-800 text-sm">${f.name}</h4>
+                            <p class="text-xs text-slate-500 leading-snug">${f.area} · ${f.item}</p>
+                        </div>
+                        <div class="text-right shrink-0">
+                            <div class="font-mono font-bold text-rose-500 text-sm">$${f.price}</div>
+                            <div class="text-[10px] text-slate-400">/人</div>
+                        </div>
+                    </div>
+                `).join('');
+
+                return `
+                <div class="p-6 fade-in max-w-md mx-auto">
+                    <header class="mb-6">
+                        <h1 class="text-2xl font-bold text-slate-800">攻略 · 情報</h1>
+                        <p class="text-slate-500 text-sm">機票、住宿、機車、浮潛、美食</p>
+                    </header>
+
+                    <!-- 已訂購的機加酒 -->
+                    <h3 class="font-bold text-slate-800 mb-3 px-1 flex items-center gap-2">
+                        <i class="fa-solid fa-circle-check text-emerald-500"></i> 已訂購
+                    </h3>
+                    ${bookingHtml}
+
+                    <!-- 機車租借 -->
+                    <h3 class="font-bold text-slate-800 mb-3 px-1 flex items-center gap-2">
+                        <i class="fa-solid fa-motorcycle text-amber-500"></i> 電動機車 (免駕照)
+                    </h3>
+                    <p class="text-xs text-slate-500 mb-4 px-1">澎湖大多機車店家要求重機駕照，以下店家提供電動車租借，僅需身分證。建議旺季 7-10 天前先預約。</p>
+                    ${scootersHtml}
+
+                    <!-- 浮潛 -->
+                    <h3 class="font-bold text-slate-800 mb-3 mt-6 px-1 flex items-center gap-2">
+                        <i class="fa-solid fa-water text-ocean-500"></i> 浮潛行程
+                    </h3>
+                    ${snorkelHtml}
+
+                    <!-- 美食 -->
+                    <h3 class="font-bold text-slate-800 mb-3 px-1 flex items-center gap-2">
+                        <i class="fa-solid fa-bowl-food text-rose-500"></i> 必吃美食 TOP 6
+                    </h3>
+                    ${foodHtml}
+
+                    <div class="h-8"></div>
+                </div>
+                `;
+            },
+
+            accounting: () => {
+                const totalSpent = State.expenses.reduce((acc, e) => acc + e.amount, 0);
+                const remaining = DATA.accounting.totalBudget - totalSpent;
+
+                return `
+                <div class="p-6 fade-in max-w-md mx-auto">
+                    <header class="mb-6">
+                        <h1 class="text-2xl font-bold text-slate-800">記帳</h1>
+                        <p class="text-xs text-slate-400 mt-1">本地儲存 · 不上傳</p>
+                    </header>
+
+                    <div class="grid grid-cols-2 gap-4 mb-8">
+                        <div class="bg-slate-800 text-white p-5 rounded-xl shadow-lg">
+                            <p class="text-slate-400 text-xs font-bold uppercase mb-1">剩餘預算</p>
+                            <p id="val-remaining" class="text-2xl font-bold tracking-tight">NT$ ${remaining.toLocaleString()}</p>
+                        </div>
+                        <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                            <p class="text-slate-400 text-xs font-bold uppercase mb-1">總支出</p>
+                            <p id="val-spent" class="text-2xl font-bold tracking-tight text-rose-500">NT$ ${totalSpent.toLocaleString()}</p>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5 mb-8">
+                        <h3 class="font-bold text-lg mb-4">新增一筆</h3>
+                        <form onsubmit="addExpense(event)" class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">項目描述</label>
+                                <input type="text" name="item" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ocean-500" placeholder="例如：龍門海鮮午餐">
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">金額 (TWD)</label>
+                                    <input type="number" step="1" inputmode="numeric" name="amount" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ocean-500" placeholder="0">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">類別</label>
+                                    <select name="category" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ocean-500">
+                                        <option value="餐飲">餐飲</option>
+                                        <option value="交通">交通</option>
+                                        <option value="住宿">住宿</option>
+                                        <option value="景點">景點 / 活動</option>
+                                        <option value="伴手禮">伴手禮</option>
+                                        <option value="其他">其他</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">備註</label>
+                                <textarea name="notes" rows="2" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ocean-500" placeholder="補充說明..."></textarea>
+                            </div>
+
+                            <button type="submit" class="w-full bg-ocean-600 hover:bg-ocean-700 text-white font-bold py-3 rounded-lg shadow-ocean-200 shadow-md transition">新增支出</button>
+                        </form>
+                    </div>
+
+                    <h3 class="font-bold text-slate-800 mb-3 px-1">最近紀錄</h3>
+                    <div id="history-list" class="bg-white rounded-xl border border-slate-200 overflow-hidden divide-y divide-slate-100">
+                        ${State.expenses.length === 0 ? '<p class="p-4 text-center text-slate-400 text-sm">尚無紀錄</p>' : ''}
+                        ${State.expenses.slice().reverse().map(e => `
+                            <div class="p-4 flex justify-between items-center">
+                                <div class="flex-1 min-w-0">
+                                    <p class="font-bold text-sm text-slate-800">${e.item}</p>
+                                    <p class="text-xs text-slate-400">${e.category} · ${e.date}${e.notes ? ' · ' + e.notes : ''}</p>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="font-mono font-bold text-slate-700">-$${e.amount.toLocaleString()}</span>
+                                    <button onclick="deleteExpense('${e.id}')" class="text-slate-300 hover:text-rose-500 transition p-2 rounded-full hover:bg-rose-50">
+                                        <i class="fa-solid fa-trash-can"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                `;
+            },
+
+            info: () => {
+                const b = DATA.booking;
+                return `
+                <div class="p-6 fade-in max-w-md mx-auto">
+                    <header class="mb-6">
+                        <h1 class="text-2xl font-bold text-slate-800">資訊 · 安全</h1>
+                    </header>
+
+                    <!-- 我的訂購 (完整) -->
+                    <h3 class="font-bold text-slate-800 mb-3 px-1 flex items-center gap-2">
+                        <i class="fa-solid fa-receipt text-ocean-500"></i> 我的訂購
+                    </h3>
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5 mb-6 space-y-4">
+                        <div>
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">${b.vendor}</p>
+                            <p class="text-lg font-bold text-ocean-600 font-mono">TWD ${b.totalAmount.toLocaleString()}</p>
+                        </div>
+
+                        <div class="border-t border-slate-100 pt-3">
+                            <p class="text-xs font-bold text-slate-500 mb-2"><i class="fa-solid fa-plane-departure mr-1 text-ocean-500"></i> 去程 · ${b.outbound.flight}</p>
+                            <p class="text-sm text-slate-800 font-semibold">${b.outbound.from} → ${b.outbound.to}</p>
+                            <p class="text-xs text-slate-500 mt-1">出發 ${b.outbound.depart} · 抵達 ${b.outbound.arrive}</p>
+                        </div>
+
+                        <div class="border-t border-slate-100 pt-3">
+                            <p class="text-xs font-bold text-slate-500 mb-2"><i class="fa-solid fa-plane-arrival mr-1 text-ocean-500"></i> 回程 · ${b.inbound.flight}</p>
+                            <p class="text-sm text-slate-800 font-semibold">${b.inbound.from} → ${b.inbound.to}</p>
+                            <p class="text-xs text-slate-500 mt-1">出發 ${b.inbound.depart} · 抵達 ${b.inbound.arrive}</p>
+                        </div>
+
+                        <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 flex items-start gap-2">
+                            <i class="fa-solid fa-circle-exclamation mt-0.5"></i>
+                            <span>${b.notice}</span>
+                        </div>
+
+                        <div class="border-t border-slate-100 pt-3">
+                            <p class="text-xs font-bold text-slate-500 mb-2"><i class="fa-solid fa-hotel mr-1 text-ocean-500"></i> 住宿 · ${'★'.repeat(b.hotel.rating)}</p>
+                            <p class="text-sm text-slate-800 font-semibold">${b.hotel.name}</p>
+                            <p class="text-xs text-slate-400 italic">${b.hotel.nameEn}</p>
+                            <p class="text-xs text-slate-500 mt-1">${b.hotel.address}</p>
+                            <p class="text-xs text-slate-500 mt-2">入住 ${b.hotel.checkIn} · 退房 ${b.hotel.checkOut} (${b.hotel.nights} 晚)</p>
+                            <p class="text-xs text-slate-500">${b.hotel.room} · ${b.hotel.guests}</p>
+                            <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(b.hotel.address)}" target="_blank" class="inline-flex items-center gap-1 mt-3 text-xs font-bold text-ocean-600 hover:text-ocean-700">
+                                <i class="fa-solid fa-map-pin"></i> 在 Google 地圖打開
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- 緊急聯絡 -->
+                    <h3 class="font-bold text-slate-800 mb-3 px-1 flex items-center gap-2">
+                        <i class="fa-solid fa-phone-volume text-rose-500"></i> 緊急聯絡
+                    </h3>
+                    <div class="space-y-3 mb-8">
+                        ${DATA.emergency.map(c => `
+                            <a href="tel:${c.phone.replace(/[^+\d]/g, '')}" class="flex items-center p-4 bg-white rounded-xl border border-rose-100 shadow-sm hover:bg-rose-50 transition group">
+                                <div class="h-10 w-10 rounded-full bg-rose-100 text-rose-500 flex items-center justify-center text-lg group-hover:scale-110 transition-transform">
+                                    <i class="fa-solid fa-phone"></i>
+                                </div>
+                                <div class="ml-4 flex-1">
+                                    <h4 class="font-bold text-slate-800 text-sm">${c.name}</h4>
+                                    <p class="text-sm text-slate-500 font-mono">${c.phone}</p>
+                                </div>
+                                <i class="fa-solid fa-chevron-right text-rose-300"></i>
+                            </a>
+                        `).join('')}
+                    </div>
+
+                    <!-- 旅程資訊 -->
+                    <h3 class="font-bold text-slate-800 mb-3 px-1 flex items-center gap-2">
+                        <i class="fa-solid fa-circle-info text-slate-400"></i> 旅程資訊
+                    </h3>
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5 space-y-2 text-sm">
+                        <div class="flex justify-between"><span class="text-slate-500">目的地</span><span class="font-semibold text-slate-800">澎湖 馬公</span></div>
+                        <div class="flex justify-between"><span class="text-slate-500">行程</span><span class="font-semibold text-slate-800">4 天 3 夜</span></div>
+                        <div class="flex justify-between"><span class="text-slate-500">人數</span><span class="font-semibold text-slate-800">${DATA.config.travelers} 人</span></div>
+                        <div class="flex justify-between"><span class="text-slate-500">期間</span><span class="font-semibold text-slate-800">${DATA.config.tripStart} → ${DATA.config.tripEnd}</span></div>
+                    </div>
+
+                    <p class="text-center text-xs text-slate-400 mt-8 mb-4">菊島漫遊指揮中心 v1.0</p>
+                </div>
+                `;
+            }
+        };
+
+        // ==========================================
+        // SCHEDULE HELPERS
+        // ==========================================
+        function initSchedule() {
+            const tabsContainer = document.getElementById('schedule-tabs');
+            if (!tabsContainer) return;
+
+            const days = [...new Set(DATA.schedule.map(s => s.day))].sort((a, b) => a - b);
+
+            tabsContainer.innerHTML = days.map(d => {
+                // Day 1 = 6/26, so base = 2026-06-25 + d
+                const dateObj = new Date(2026, 5, 25 + d);
+                const dateStr = `${dateObj.getMonth() + 1}/${dateObj.getDate()}`;
+                const weekStr = dateObj.toLocaleDateString('zh-TW', { weekday: 'short' });
+                return `
+                <button onclick="renderScheduleList(${d})" id="tab-btn-${d}" class="flex-none snap-start px-4 py-2 rounded-lg border border-slate-100 bg-white shadow-sm text-sm font-medium text-slate-500 hover:bg-ocean-50 hover:text-ocean-600 transition-all whitespace-nowrap">
+                    <span class="block text-[10px] uppercase tracking-wider font-bold mb-0.5">Day ${d}</span>
+                    <span class="font-bold text-lg">${dateStr}</span> <span class="text-xs opacity-75">(${weekStr})</span>
+                </button>`;
+            }).join('');
+
+            // Default to current trip day if in range, else day 1
+            const now = new Date();
+            const tripStart = new Date(2026, 5, 26);
+            const startMid = new Date(tripStart); startMid.setHours(0, 0, 0, 0);
+            const nowMid = new Date(now); nowMid.setHours(0, 0, 0, 0);
+            const diff = Math.ceil((nowMid - startMid) / (1000 * 60 * 60 * 24)) + 1;
+            const defaultDay = (diff >= 1 && diff <= 4) ? diff : 1;
+            renderScheduleList(defaultDay);
+        }
+
+        function renderScheduleList(day) {
+            const listContainer = document.getElementById('schedule-list');
+            const items = DATA.schedule.filter(s => s.day === day);
+
+            document.querySelectorAll('#schedule-tabs button').forEach(btn => {
+                if (btn.id === `tab-btn-${day}`) {
+                    btn.classList.add('border-ocean-200', 'bg-ocean-50', 'text-ocean-700', 'ring-1', 'ring-ocean-200');
+                    btn.classList.remove('border-slate-100', 'bg-white', 'text-slate-500');
+                    btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                } else {
+                    btn.classList.remove('border-ocean-200', 'bg-ocean-50', 'text-ocean-700', 'ring-1', 'ring-ocean-200');
+                    btn.classList.add('border-slate-100', 'bg-white', 'text-slate-500');
+                }
+            });
+
+            if (items.length === 0) {
+                listContainer.innerHTML = `<div class="p-8 text-center text-slate-400">本日無行程</div>`;
+                return;
+            }
+
+            const doneSet = JSON.parse(localStorage.getItem('penghu_checks') || '{}');
+
+            listContainer.innerHTML = items.map(item => {
+                const done = !!doneSet[item.id];
+                return `
+                <div class="relative flex gap-4">
+                    <div class="flex flex-col items-center min-w-[3.5rem] pt-1">
+                        <span class="text-sm font-bold text-slate-800">${item.time}</span>
+                        <span class="text-xs text-slate-400">${item.endTime}</span>
+                    </div>
+                    <div class="flex-1 bg-white rounded-xl p-4 shadow-sm border ${done ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-100'} mb-2 cursor-pointer transition hover:shadow-md" onclick="toggleDetails(${item.id})">
+                        <div class="flex justify-between items-start gap-2">
+                            <h4 class="font-bold text-slate-800 ${done ? 'line-through opacity-60' : ''}">${item.title}</h4>
+                            <span class="text-[10px] uppercase font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded tracking-wide shrink-0">${typeLabel(item.type)}</span>
+                        </div>
+                        <div class="flex items-center text-xs text-slate-500 mt-1 gap-2">
+                            <span><i class="fa-solid fa-location-dot text-ocean-400"></i> ${item.location}</span>
+                        </div>
+                        <div id="details-${item.id}" class="hidden mt-3 pt-3 border-t border-slate-100 text-sm text-slate-600">
+                            <p class="leading-relaxed">${item.notes || '無補充說明'}</p>
+                            <button onclick="event.stopPropagation(); toggleCheck(${item.id})" class="mt-3 text-xs font-bold ${done ? 'text-slate-400' : 'text-emerald-600'} hover:underline">
+                                <i class="fa-solid ${done ? 'fa-rotate-left' : 'fa-circle-check'} mr-1"></i> ${done ? '取消完成' : '標記完成'}
+                            </button>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+
+            listContainer.classList.remove('fade-in');
+            void listContainer.offsetWidth;
+            listContainer.classList.add('fade-in');
+        }
+
+        function typeLabel(t) {
+            return {
+                logistics: '行政',
+                transport: '交通',
+                activity: '景點',
+                food: '美食'
+            }[t] || t;
+        }
+
+        // ==========================================
+        // ACTIONS
+        // ==========================================
+        function toggleDetails(id) {
+            const el = document.getElementById(`details-${id}`);
+            if (el) el.classList.toggle('hidden');
+        }
+
+        window.toggleCheck = function (id) {
+            const doneSet = JSON.parse(localStorage.getItem('penghu_checks') || '{}');
+            doneSet[id] = !doneSet[id];
+            if (!doneSet[id]) delete doneSet[id];
+            localStorage.setItem('penghu_checks', JSON.stringify(doneSet));
+            // Re-render current day
+            const activeTab = document.querySelector('#schedule-tabs button.bg-ocean-50');
+            if (activeTab) {
+                const d = parseInt(activeTab.id.replace('tab-btn-', ''));
+                renderScheduleList(d);
+            }
+        };
+
+        function addExpense(e) {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            const expense = {
+                id: String(Date.now()),
+                item: fd.get('item'),
+                amount: parseInt(fd.get('amount'), 10) || 0,
+                category: fd.get('category'),
+                notes: fd.get('notes') || '',
+                date: new Date().toLocaleDateString('zh-TW')
+            };
+            State.expenses.push(expense);
+            localStorage.setItem('penghu_expenses', JSON.stringify(State.expenses));
+            showToast('已新增支出');
+            router.navigate('accounting');
+        }
+
+        window.deleteExpense = function (id) {
+            State.expenses = State.expenses.filter(e => e.id !== id);
+            localStorage.setItem('penghu_expenses', JSON.stringify(State.expenses));
+            showToast('已刪除');
+            router.navigate('accounting');
+        };
+
+        window.closeModal = function () {
+            document.getElementById('modal-container').classList.add('hidden');
+        };
+
+        window.showToast = function (message, type = 'success') {
+            const toast = document.createElement('div');
+            const icon = type === 'error' ? 'fa-triangle-exclamation text-rose-400' : 'fa-circle-check text-emerald-400';
+            toast.className = `fixed top-6 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-full shadow-xl z-[70] flex items-center gap-3 transition-all duration-300 opacity-0 translate-y-[-20px]`;
+            toast.innerHTML = `<i class="fa-solid ${icon}"></i> <span class="font-medium text-sm">${message}</span>`;
+            document.body.appendChild(toast);
+            requestAnimationFrame(() => toast.classList.remove('opacity-0', 'translate-y-[-20px]'));
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-[-20px]');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        };
+
+        // Init
+        router.navigate('dashboard');
+    </script>
+</body>
+
+</html>
