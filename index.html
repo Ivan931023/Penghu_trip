@@ -1263,9 +1263,21 @@
             return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         }
 
+        // Normalize: read all memos as array (handles legacy single .memo)
+        function getMemos(id) {
+            const mem = State.memories[id];
+            if (!mem) return [];
+            const arr = Array.isArray(mem.memos) ? mem.memos.slice() : [];
+            if (mem.memo && mem.memo.text) {
+                arr.unshift({ id: 'legacy', ...mem.memo, createdAt: mem.memo.updatedAt });
+            }
+            // Newest first by createdAt timestamp string (ISO-style, lexicographic OK)
+            arr.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+            return arr;
+        }
+
         function renderMemoryUI(id) {
             const mem = getMemory(id);
-            const editing = !!document.getElementById(`memo-editing-${id}`);
 
             const photosHtml = mem.photos && mem.photos.length > 0
                 ? `<div class="grid grid-cols-3 gap-2 mb-3">
@@ -1284,42 +1296,65 @@
                 </div>`
                 : '';
 
-            const memoSaved = mem.memo && mem.memo.text;
-            const memoHtml = editing
-                ? `<div>
-                    <textarea id="memo-input-${id}" rows="3" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ocean-500" placeholder="這個地方有什麼好玩的？...">${memoSaved ? escapeHtml(mem.memo.text) : ''}</textarea>
+            // Memos section — multiple entries, each with own edit/delete state
+            const memos = getMemos(id);
+            const addingNew = !!document.getElementById(`memo-new-${id}`);
+
+            const newMemoEditor = addingNew
+                ? `<div class="bg-amber-50/40 border border-amber-200 rounded-lg p-3 mb-2">
+                    <textarea id="memo-new-input-${id}" rows="3" class="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ocean-500" placeholder="這個地方有什麼好玩的？..."></textarea>
                     <div class="flex gap-2 mt-2">
-                        <button onclick="event.stopPropagation(); saveMemo(${id})" class="flex-1 bg-ocean-600 hover:bg-ocean-700 text-white text-xs font-bold py-2 rounded-lg transition">
-                            <i class="fa-solid fa-floppy-disk mr-1"></i> 儲存
+                        <button onclick="event.stopPropagation(); saveNewMemo(${id})" class="flex-1 bg-ocean-600 hover:bg-ocean-700 text-white text-xs font-bold py-2 rounded-lg transition">
+                            <i class="fa-solid fa-floppy-disk mr-1"></i> 新增
                         </button>
-                        <button onclick="event.stopPropagation(); cancelMemo(${id})" class="px-4 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold py-2 rounded-lg transition">
+                        <button onclick="event.stopPropagation(); cancelNewMemo(${id})" class="px-4 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold py-2 rounded-lg transition">
                             取消
                         </button>
                     </div>
                 </div>`
-                : memoSaved
-                    ? `<div class="bg-amber-50/60 border border-amber-100 rounded-lg p-3">
-                        <p class="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">${escapeHtml(mem.memo.text)}</p>
-                        <p class="text-[10px] text-slate-400 mt-2 font-mono">${mem.memo.updatedAt}${mem.memo.updatedBy ? ' · ' + escapeHtml(mem.memo.updatedBy.displayName || mem.memo.updatedBy.email || '') : ''}</p>
-                        <div class="flex gap-3 mt-2 text-xs">
-                            <button onclick="event.stopPropagation(); editMemo(${id})" class="text-ocean-600 font-bold hover:underline">
-                                <i class="fa-solid fa-pen mr-1"></i> 編輯
+                : '';
+
+            const memoCards = memos.map(m => {
+                const isEditing = !!document.getElementById(`memo-editing-${id}-${m.id}`);
+                const author = m.updatedBy || m.createdBy;
+                const authorTxt = author ? ' · ' + escapeHtml(author.displayName || author.email || '') : '';
+                if (isEditing) {
+                    return `<div class="bg-amber-50/60 border border-amber-300 rounded-lg p-3 mb-2">
+                        <textarea id="memo-edit-input-${id}-${m.id}" rows="3" class="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ocean-500">${escapeHtml(m.text)}</textarea>
+                        <div class="flex gap-2 mt-2">
+                            <button onclick="event.stopPropagation(); saveMemoEntry(${id}, '${m.id}')" class="flex-1 bg-ocean-600 hover:bg-ocean-700 text-white text-xs font-bold py-2 rounded-lg transition">
+                                <i class="fa-solid fa-floppy-disk mr-1"></i> 儲存
                             </button>
-                            <button onclick="event.stopPropagation(); deleteMemo(${id})" class="text-rose-500 font-bold hover:underline">
-                                <i class="fa-solid fa-trash-can mr-1"></i> 刪除
+                            <button onclick="event.stopPropagation(); cancelEditMemo(${id}, '${m.id}')" class="px-4 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold py-2 rounded-lg transition">
+                                取消
                             </button>
                         </div>
-                    </div>`
-                    : `<button onclick="event.stopPropagation(); editMemo(${id})" class="w-full border-2 border-dashed border-slate-200 rounded-lg p-3 text-xs text-slate-400 hover:text-ocean-600 hover:border-ocean-300 transition">
-                        <i class="fa-solid fa-pen-to-square mr-1"></i> 寫下心得
-                    </button>`;
+                    </div>`;
+                }
+                return `<div class="bg-amber-50/60 border border-amber-100 rounded-lg p-3 mb-2">
+                    <p class="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">${escapeHtml(m.text)}</p>
+                    <p class="text-[10px] text-slate-400 mt-2 font-mono">${m.updatedAt || m.createdAt || ''}${authorTxt}</p>
+                    <div class="flex gap-3 mt-2 text-xs">
+                        <button onclick="event.stopPropagation(); editMemoEntry(${id}, '${m.id}')" class="text-ocean-600 font-bold hover:underline">
+                            <i class="fa-solid fa-pen mr-1"></i> 編輯
+                        </button>
+                        <button onclick="event.stopPropagation(); deleteMemoEntry(${id}, '${m.id}')" class="text-rose-500 font-bold hover:underline">
+                            <i class="fa-solid fa-trash-can mr-1"></i> 刪除
+                        </button>
+                    </div>
+                </div>`;
+            }).join('');
+
+            const emptyMemos = (memos.length === 0 && !addingNew)
+                ? `<p class="text-xs text-slate-400 italic mt-2">尚無心得</p>`
+                : '';
 
             return `
                 <div class="space-y-3">
                     <div>
                         <div class="flex items-center justify-between mb-2">
                             <h5 class="text-xs font-bold text-slate-500 uppercase tracking-widest">
-                                <i class="fa-solid fa-camera mr-1 text-ocean-500"></i> 照片 ${mem.photos.length > 0 ? `(${mem.photos.length})` : ''}
+                                <i class="fa-solid fa-camera mr-1 text-ocean-500"></i> 照片 ${mem.photos && mem.photos.length > 0 ? `(${mem.photos.length})` : ''}
                             </h5>
                             <label class="text-xs text-ocean-600 font-bold cursor-pointer hover:underline">
                                 <i class="fa-solid fa-plus mr-1"></i> 上傳
@@ -1329,10 +1364,17 @@
                         ${photosHtml || '<p class="text-xs text-slate-400 italic">尚未上傳照片</p>'}
                     </div>
                     <div>
-                        <h5 class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">
-                            <i class="fa-solid fa-comment-dots mr-1 text-amber-500"></i> 心得
-                        </h5>
-                        ${memoHtml}
+                        <div class="flex items-center justify-between mb-2">
+                            <h5 class="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                                <i class="fa-solid fa-comment-dots mr-1 text-amber-500"></i> 心得 ${memos.length > 0 ? `(${memos.length})` : ''}
+                            </h5>
+                            <button onclick="event.stopPropagation(); startNewMemo(${id})" class="text-xs text-ocean-600 font-bold hover:underline" ${addingNew ? 'disabled style="opacity:0.4"' : ''}>
+                                <i class="fa-solid fa-plus mr-1"></i> 新增心得
+                            </button>
+                        </div>
+                        ${newMemoEditor}
+                        ${memoCards}
+                        ${emptyMemos}
                     </div>
                 </div>`;
         }
@@ -1476,60 +1518,142 @@
             modal.classList.remove('hidden');
         };
 
-        window.editMemo = function (id) {
-            // mark editing by injecting a hidden marker element
+        // ===== Multi-memo handlers =====
+
+        function makeMemoId() {
+            return 'm' + Date.now() + Math.random().toString(36).slice(2, 6);
+        }
+
+        window.startNewMemo = function (id) {
             const el = document.getElementById(`memory-${id}`);
             if (!el) return;
-            // Add the marker, then re-render
+            if (document.getElementById(`memo-new-${id}`)) return; // already adding
             const marker = document.createElement('div');
-            marker.id = `memo-editing-${id}`;
+            marker.id = `memo-new-${id}`;
             marker.style.display = 'none';
             el.appendChild(marker);
             refreshMemoryUI(id);
-            // Focus textarea
             setTimeout(() => {
-                const ta = document.getElementById(`memo-input-${id}`);
-                if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+                const ta = document.getElementById(`memo-new-input-${id}`);
+                if (ta) ta.focus();
             }, 0);
         };
 
-        window.cancelMemo = function (id) {
+        window.cancelNewMemo = function (id) {
+            const marker = document.getElementById(`memo-new-${id}`);
+            if (marker) marker.remove();
             refreshMemoryUI(id);
         };
 
-        window.saveMemo = async function (id) {
-            const ta = document.getElementById(`memo-input-${id}`);
-            if (!ta) return;
+        window.saveNewMemo = async function (id) {
             if (!State.user) { showToast('請先登入', 'error'); return; }
+            const ta = document.getElementById(`memo-new-input-${id}`);
+            if (!ta) return;
             const text = ta.value.trim();
+            if (!text) { showToast('心得不能空白', 'error'); return; }
+
+            const now = new Date().toLocaleString('zh-TW', { hour12: false });
+            const me = { email: State.user.email, displayName: State.user.displayName };
+            const newMemo = { id: makeMemoId(), text, createdAt: now, updatedAt: now, createdBy: me, updatedBy: me };
+
             try {
-                if (text) {
-                    await memDocRef(id).set({
-                        memo: {
-                            text,
-                            updatedAt: new Date().toLocaleString('zh-TW', { hour12: false }),
-                            updatedBy: { email: State.user.email, displayName: State.user.displayName }
-                        }
-                    }, { merge: true });
-                    showToast('已儲存心得');
-                } else {
-                    await memDocRef(id).update({
-                        memo: firebase.firestore.FieldValue.delete()
-                    });
-                    showToast('已清除心得');
-                }
+                await memDocRef(id).set({
+                    memos: firebase.firestore.FieldValue.arrayUnion(newMemo)
+                }, { merge: true });
+                const marker = document.getElementById(`memo-new-${id}`);
+                if (marker) marker.remove();
+                showToast('已新增心得');
             } catch (err) {
-                console.error('Save memo failed:', err);
+                console.error('Add memo failed:', err);
                 showToast('同步失敗: ' + err.message, 'error');
             }
         };
 
-        window.deleteMemo = async function (id) {
+        window.editMemoEntry = function (id, memoId) {
+            const el = document.getElementById(`memory-${id}`);
+            if (!el) return;
+            const marker = document.createElement('div');
+            marker.id = `memo-editing-${id}-${memoId}`;
+            marker.style.display = 'none';
+            el.appendChild(marker);
+            refreshMemoryUI(id);
+            setTimeout(() => {
+                const ta = document.getElementById(`memo-edit-input-${id}-${memoId}`);
+                if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+            }, 0);
+        };
+
+        window.cancelEditMemo = function (id, memoId) {
+            const marker = document.getElementById(`memo-editing-${id}-${memoId}`);
+            if (marker) marker.remove();
+            refreshMemoryUI(id);
+        };
+
+        window.saveMemoEntry = async function (id, memoId) {
+            if (!State.user) { showToast('請先登入', 'error'); return; }
+            const ta = document.getElementById(`memo-edit-input-${id}-${memoId}`);
+            if (!ta) return;
+            const text = ta.value.trim();
+            if (!text) {
+                // empty => delete instead
+                return window.deleteMemoEntry(id, memoId);
+            }
+
+            const now = new Date().toLocaleString('zh-TW', { hour12: false });
+            const me = { email: State.user.email, displayName: State.user.displayName };
+            const mem = State.memories[id] || {};
+
+            try {
+                if (memoId === 'legacy') {
+                    // Migrate the legacy single memo into the memos array
+                    const newMemo = {
+                        id: makeMemoId(),
+                        text,
+                        createdAt: (mem.memo && mem.memo.updatedAt) || now,
+                        updatedAt: now,
+                        createdBy: (mem.memo && mem.memo.updatedBy) || me,
+                        updatedBy: me
+                    };
+                    await memDocRef(id).update({
+                        memo: firebase.firestore.FieldValue.delete(),
+                        memos: firebase.firestore.FieldValue.arrayUnion(newMemo)
+                    });
+                } else {
+                    const oldMemo = (mem.memos || []).find(m => m.id === memoId);
+                    if (!oldMemo) { showToast('找不到原心得', 'error'); return; }
+                    const newMemo = { ...oldMemo, text, updatedAt: now, updatedBy: me };
+                    // Firestore arrays can't update-in-place, so remove + add
+                    await memDocRef(id).update({
+                        memos: firebase.firestore.FieldValue.arrayRemove(oldMemo)
+                    });
+                    await memDocRef(id).update({
+                        memos: firebase.firestore.FieldValue.arrayUnion(newMemo)
+                    });
+                }
+                const marker = document.getElementById(`memo-editing-${id}-${memoId}`);
+                if (marker) marker.remove();
+                showToast('已儲存');
+            } catch (err) {
+                console.error('Edit memo failed:', err);
+                showToast('同步失敗: ' + err.message, 'error');
+            }
+        };
+
+        window.deleteMemoEntry = async function (id, memoId) {
             if (!confirm('確定要刪除這則心得嗎？')) return;
             try {
-                await memDocRef(id).update({
-                    memo: firebase.firestore.FieldValue.delete()
-                });
+                if (memoId === 'legacy') {
+                    await memDocRef(id).update({
+                        memo: firebase.firestore.FieldValue.delete()
+                    });
+                } else {
+                    const mem = State.memories[id];
+                    const memo = mem && mem.memos && mem.memos.find(m => m.id === memoId);
+                    if (!memo) { showToast('找不到原心得', 'error'); return; }
+                    await memDocRef(id).update({
+                        memos: firebase.firestore.FieldValue.arrayRemove(memo)
+                    });
+                }
                 showToast('已刪除');
             } catch (err) {
                 console.error('Delete memo failed:', err);
