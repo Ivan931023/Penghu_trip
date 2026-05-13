@@ -247,8 +247,42 @@
         // ==========================================
         const State = {
             currentTab: 'dashboard',
-            expenses: JSON.parse(localStorage.getItem('penghu_expenses') || '[]')
+            expenses: JSON.parse(localStorage.getItem('penghu_expenses') || '[]'),
+            memories: JSON.parse(localStorage.getItem('penghu_memories') || '{}'),
+            weather: null // populated by fetchWeather()
         };
+
+        // 馬公座標 — for weather forecasting
+        const PENGHU_COORDS = { lat: 23.5654, lon: 119.5867 };
+
+        // WMO weather code → icon + label
+        const WEATHER_MAP = {
+            0:  { icon: 'fa-sun',                    label: '晴',        color: 'text-amber-500' },
+            1:  { icon: 'fa-sun',                    label: '大致晴朗',  color: 'text-amber-500' },
+            2:  { icon: 'fa-cloud-sun',              label: '局部多雲',  color: 'text-amber-400' },
+            3:  { icon: 'fa-cloud',                  label: '多雲',      color: 'text-slate-400' },
+            45: { icon: 'fa-smog',                   label: '霧',        color: 'text-slate-400' },
+            48: { icon: 'fa-smog',                   label: '結霜霧',    color: 'text-slate-400' },
+            51: { icon: 'fa-cloud-rain',             label: '輕毛毛雨',  color: 'text-sky-500' },
+            53: { icon: 'fa-cloud-rain',             label: '毛毛雨',    color: 'text-sky-500' },
+            55: { icon: 'fa-cloud-rain',             label: '濃毛毛雨',  color: 'text-sky-600' },
+            61: { icon: 'fa-cloud-showers-heavy',    label: '小雨',      color: 'text-sky-500' },
+            63: { icon: 'fa-cloud-showers-heavy',    label: '中雨',      color: 'text-sky-600' },
+            65: { icon: 'fa-cloud-showers-heavy',    label: '大雨',      color: 'text-sky-700' },
+            71: { icon: 'fa-snowflake',              label: '小雪',      color: 'text-sky-300' },
+            73: { icon: 'fa-snowflake',              label: '中雪',      color: 'text-sky-300' },
+            75: { icon: 'fa-snowflake',              label: '大雪',      color: 'text-sky-400' },
+            77: { icon: 'fa-snowflake',              label: '冰珠',      color: 'text-sky-400' },
+            80: { icon: 'fa-cloud-showers-water',    label: '陣雨',      color: 'text-sky-500' },
+            81: { icon: 'fa-cloud-showers-water',    label: '強陣雨',    color: 'text-sky-600' },
+            82: { icon: 'fa-cloud-showers-water',    label: '豪陣雨',    color: 'text-sky-700' },
+            85: { icon: 'fa-snowflake',              label: '陣雪',      color: 'text-sky-300' },
+            86: { icon: 'fa-snowflake',              label: '強陣雪',    color: 'text-sky-400' },
+            95: { icon: 'fa-cloud-bolt',             label: '雷雨',      color: 'text-violet-500' },
+            96: { icon: 'fa-cloud-bolt',             label: '雷雨夾冰雹', color: 'text-violet-600' },
+            99: { icon: 'fa-cloud-bolt',             label: '強雷雨冰雹', color: 'text-violet-700' }
+        };
+        const weatherInfo = (code) => WEATHER_MAP[code] || { icon: 'fa-question', label: '未知', color: 'text-slate-400' };
 
         // ==========================================
         // ROUTER
@@ -275,8 +309,108 @@
                 });
 
                 if (page === 'schedule') initSchedule();
+                if (page === 'dashboard') fetchWeather();
             }
         };
+
+        // ==========================================
+        // WEATHER (Open-Meteo, no API key)
+        // ==========================================
+        async function fetchWeather() {
+            const today = new Date().toISOString().slice(0, 10);
+            const cached = JSON.parse(localStorage.getItem('penghu_weather') || 'null');
+            if (cached && cached.fetchedDate === today) {
+                State.weather = cached;
+                renderWeatherCard();
+                return;
+            }
+
+            try {
+                const url = `https://api.open-meteo.com/v1/forecast?latitude=${PENGHU_COORDS.lat}&longitude=${PENGHU_COORDS.lon}&current=temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Asia%2FTaipei&forecast_days=7`;
+                const res = await fetch(url);
+                if (!res.ok) throw new Error('Weather API ' + res.status);
+                const data = await res.json();
+                State.weather = { ...data, fetchedDate: today };
+                localStorage.setItem('penghu_weather', JSON.stringify(State.weather));
+                renderWeatherCard();
+            } catch (err) {
+                console.error('Weather fetch failed', err);
+                renderWeatherCard({ error: true });
+            }
+        }
+
+        function renderWeatherCard(opts = {}) {
+            const slot = document.getElementById('weather-slot');
+            if (!slot) return;
+
+            if (opts.error || !State.weather) {
+                slot.innerHTML = `<div class="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm mb-6 flex items-center justify-between text-slate-400 text-sm">
+                    <span><i class="fa-solid fa-cloud-question mr-2"></i> 無法載入天氣資訊</span>
+                    <button onclick="fetchWeather()" class="text-ocean-600 font-bold hover:underline">重試</button>
+                </div>`;
+                return;
+            }
+
+            const w = State.weather;
+            const cur = w.current;
+            const daily = w.daily;
+            const curInfo = weatherInfo(cur.weather_code);
+
+            // Match trip days (6/26-6/29) to forecast index
+            const tripDates = ['2026-06-26', '2026-06-27', '2026-06-28', '2026-06-29'];
+            const dayLabels = ['Day 1 · 6/26', 'Day 2 · 6/27', 'Day 3 · 6/28', 'Day 4 · 6/29'];
+            const forecastRows = tripDates.map((date, i) => {
+                const idx = daily.time.indexOf(date);
+                if (idx < 0) return null;
+                const info = weatherInfo(daily.weather_code[idx]);
+                return { label: dayLabels[i], info, max: daily.temperature_2m_max[idx], min: daily.temperature_2m_min[idx], pop: daily.precipitation_probability_max[idx] };
+            }).filter(Boolean);
+
+            const tripForecastHtml = forecastRows.length > 0 ? `
+                <div class="border-t border-slate-100 mt-4 pt-4">
+                    <p class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">旅程 4 天預報</p>
+                    <div class="space-y-2">
+                        ${forecastRows.map(r => `
+                            <div class="flex items-center justify-between text-sm">
+                                <span class="font-medium text-slate-700 w-24">${r.label}</span>
+                                <div class="flex items-center gap-2 flex-1">
+                                    <i class="fa-solid ${r.info.icon} ${r.info.color}"></i>
+                                    <span class="text-slate-500 text-xs">${r.info.label}</span>
+                                </div>
+                                <span class="text-xs text-sky-600 w-12 text-right">💧${r.pop ?? 0}%</span>
+                                <span class="font-mono text-slate-700 w-16 text-right">${Math.round(r.min)}° / ${Math.round(r.max)}°</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>` : '';
+
+            // Today's high/low from daily (today's date or first day)
+            const todayStr = new Date().toISOString().slice(0, 10);
+            const todayIdx = daily.time.indexOf(todayStr);
+            const todayHi = todayIdx >= 0 ? Math.round(daily.temperature_2m_max[todayIdx]) : null;
+            const todayLo = todayIdx >= 0 ? Math.round(daily.temperature_2m_min[todayIdx]) : null;
+            const todayPop = todayIdx >= 0 ? (daily.precipitation_probability_max[todayIdx] ?? 0) : null;
+
+            slot.innerHTML = `
+            <div class="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm mb-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">澎湖 · 馬公 今日天氣</p>
+                        <div class="flex items-end gap-3">
+                            <span class="text-4xl font-bold text-slate-800 font-mono">${Math.round(cur.temperature_2m)}°</span>
+                            <div class="pb-1">
+                                <p class="text-sm font-semibold ${curInfo.color}">${curInfo.label}</p>
+                                <p class="text-xs text-slate-400">風 ${Math.round(cur.wind_speed_10m)} km/h · 濕 ${cur.relative_humidity_2m}%</p>
+                            </div>
+                        </div>
+                        ${todayHi !== null ? `<p class="text-xs text-slate-500 mt-2">今日 ${todayLo}° / ${todayHi}° · 降雨機率 ${todayPop}%</p>` : ''}
+                    </div>
+                    <i class="fa-solid ${curInfo.icon} ${curInfo.color} text-6xl"></i>
+                </div>
+                ${tripForecastHtml}
+            </div>`;
+        }
+        window.fetchWeather = fetchWeather;
 
         // ==========================================
         // PAGE TEMPLATES
@@ -434,6 +568,7 @@
 
                     ${heroCard}
                     ${nextCard}
+                    <div id="weather-slot"></div>
                     ${bookingCard}
 
                     <h3 class="font-bold text-slate-800 mb-4 px-1">快速功能</h3>
@@ -870,11 +1005,14 @@
                         <div class="flex items-center text-xs text-slate-500 mt-1 gap-2">
                             <span><i class="fa-solid fa-location-dot text-ocean-400"></i> ${item.location}</span>
                         </div>
-                        <div id="details-${item.id}" class="hidden mt-3 pt-3 border-t border-slate-100 text-sm text-slate-600">
+                        <div id="details-${item.id}" class="hidden mt-3 pt-3 border-t border-slate-100 text-sm text-slate-600" onclick="event.stopPropagation()">
                             <p class="leading-relaxed">${item.notes || '無補充說明'}</p>
                             <button onclick="event.stopPropagation(); toggleCheck(${item.id})" class="mt-3 text-xs font-bold ${done ? 'text-slate-400' : 'text-emerald-600'} hover:underline">
                                 <i class="fa-solid ${done ? 'fa-rotate-left' : 'fa-circle-check'} mr-1"></i> ${done ? '取消完成' : '標記完成'}
                             </button>
+                            <div id="memory-${item.id}" class="mt-4 pt-4 border-t border-dashed border-slate-200">
+                                ${renderMemoryUI(item.id)}
+                            </div>
                         </div>
                     </div>
                 </div>`;
@@ -893,6 +1031,254 @@
                 food: '美食'
             }[t] || t;
         }
+
+        // ==========================================
+        // MEMORY (photos + memo per schedule item)
+        // ==========================================
+        function getMemory(id) {
+            return State.memories[id] || { photos: [], memo: null };
+        }
+
+        function saveMemories() {
+            try {
+                localStorage.setItem('penghu_memories', JSON.stringify(State.memories));
+                return true;
+            } catch (e) {
+                showToast('儲存空間已滿，請刪除一些舊照片', 'error');
+                return false;
+            }
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+
+        function renderMemoryUI(id) {
+            const mem = getMemory(id);
+            const editing = !!document.getElementById(`memo-editing-${id}`);
+
+            const photosHtml = mem.photos.length > 0
+                ? `<div class="grid grid-cols-3 gap-2 mb-3">
+                    ${mem.photos.map((p, i) => `
+                        <div class="relative aspect-square rounded-lg overflow-hidden bg-slate-100 group">
+                            <img src="${p.dataUrl}" alt="" class="w-full h-full object-cover cursor-pointer" onclick="event.stopPropagation(); viewPhoto(${id}, ${i})">
+                            <button onclick="event.stopPropagation(); downloadPhoto(${id}, ${i})" class="absolute bottom-1 left-1 w-7 h-7 bg-white/90 rounded-full flex items-center justify-center text-slate-700 hover:bg-white shadow text-xs">
+                                <i class="fa-solid fa-download"></i>
+                            </button>
+                            <button onclick="event.stopPropagation(); deletePhoto(${id}, '${p.id}')" class="absolute top-1 right-1 w-7 h-7 bg-rose-500/90 rounded-full flex items-center justify-center text-white hover:bg-rose-600 shadow text-xs">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                        </div>
+                    `).join('')}
+                </div>`
+                : '';
+
+            const memoSaved = mem.memo && mem.memo.text;
+            const memoHtml = editing
+                ? `<div>
+                    <textarea id="memo-input-${id}" rows="3" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ocean-500" placeholder="這個地方有什麼好玩的？...">${memoSaved ? escapeHtml(mem.memo.text) : ''}</textarea>
+                    <div class="flex gap-2 mt-2">
+                        <button onclick="event.stopPropagation(); saveMemo(${id})" class="flex-1 bg-ocean-600 hover:bg-ocean-700 text-white text-xs font-bold py-2 rounded-lg transition">
+                            <i class="fa-solid fa-floppy-disk mr-1"></i> 儲存
+                        </button>
+                        <button onclick="event.stopPropagation(); cancelMemo(${id})" class="px-4 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold py-2 rounded-lg transition">
+                            取消
+                        </button>
+                    </div>
+                </div>`
+                : memoSaved
+                    ? `<div class="bg-amber-50/60 border border-amber-100 rounded-lg p-3">
+                        <p class="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">${escapeHtml(mem.memo.text)}</p>
+                        <p class="text-[10px] text-slate-400 mt-2 font-mono">${mem.memo.updatedAt}</p>
+                        <div class="flex gap-3 mt-2 text-xs">
+                            <button onclick="event.stopPropagation(); editMemo(${id})" class="text-ocean-600 font-bold hover:underline">
+                                <i class="fa-solid fa-pen mr-1"></i> 編輯
+                            </button>
+                            <button onclick="event.stopPropagation(); deleteMemo(${id})" class="text-rose-500 font-bold hover:underline">
+                                <i class="fa-solid fa-trash-can mr-1"></i> 刪除
+                            </button>
+                        </div>
+                    </div>`
+                    : `<button onclick="event.stopPropagation(); editMemo(${id})" class="w-full border-2 border-dashed border-slate-200 rounded-lg p-3 text-xs text-slate-400 hover:text-ocean-600 hover:border-ocean-300 transition">
+                        <i class="fa-solid fa-pen-to-square mr-1"></i> 寫下心得
+                    </button>`;
+
+            return `
+                <div class="space-y-3">
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <h5 class="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                                <i class="fa-solid fa-camera mr-1 text-ocean-500"></i> 照片 ${mem.photos.length > 0 ? `(${mem.photos.length})` : ''}
+                            </h5>
+                            <label class="text-xs text-ocean-600 font-bold cursor-pointer hover:underline">
+                                <i class="fa-solid fa-plus mr-1"></i> 上傳
+                                <input type="file" accept="image/*" multiple class="hidden" onchange="addPhotos(${id}, this.files); this.value=''">
+                            </label>
+                        </div>
+                        ${photosHtml || '<p class="text-xs text-slate-400 italic">尚未上傳照片</p>'}
+                    </div>
+                    <div>
+                        <h5 class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">
+                            <i class="fa-solid fa-comment-dots mr-1 text-amber-500"></i> 心得
+                        </h5>
+                        ${memoHtml}
+                    </div>
+                </div>`;
+        }
+
+        function refreshMemoryUI(id) {
+            const el = document.getElementById(`memory-${id}`);
+            if (el) el.innerHTML = renderMemoryUI(id);
+        }
+
+        // Compress image to fit localStorage budget (~800px max, JPEG 0.7)
+        function compressImage(file, maxW = 800, quality = 0.7) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = e => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const scale = Math.min(1, maxW / Math.max(img.width, img.height));
+                        const canvas = document.createElement('canvas');
+                        canvas.width = Math.round(img.width * scale);
+                        canvas.height = Math.round(img.height * scale);
+                        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+                        resolve(canvas.toDataURL('image/jpeg', quality));
+                    };
+                    img.onerror = reject;
+                    img.src = e.target.result;
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        window.addPhotos = async function (id, fileList) {
+            const files = Array.from(fileList).filter(f => f.type.startsWith('image/'));
+            if (files.length === 0) return;
+            showToast(`處理 ${files.length} 張照片中...`);
+
+            const mem = getMemory(id);
+            if (!State.memories[id]) State.memories[id] = { photos: [], memo: null };
+
+            for (const f of files) {
+                try {
+                    const dataUrl = await compressImage(f);
+                    State.memories[id].photos.push({
+                        id: 'p' + Date.now() + Math.random().toString(36).slice(2, 6),
+                        dataUrl,
+                        name: f.name,
+                        addedAt: new Date().toLocaleString('zh-TW', { hour12: false })
+                    });
+                } catch (err) {
+                    console.error('Compress failed for', f.name, err);
+                }
+            }
+
+            if (saveMemories()) {
+                showToast(`已新增 ${files.length} 張照片`);
+            } else {
+                // Roll back: remove just-added if save failed
+                State.memories[id].photos.splice(-files.length);
+            }
+            refreshMemoryUI(id);
+        };
+
+        window.deletePhoto = function (id, photoId) {
+            if (!confirm('確定要刪除這張照片嗎？')) return;
+            const mem = State.memories[id];
+            if (!mem) return;
+            mem.photos = mem.photos.filter(p => p.id !== photoId);
+            saveMemories();
+            refreshMemoryUI(id);
+            showToast('已刪除');
+        };
+
+        window.downloadPhoto = function (id, photoIdx) {
+            const mem = getMemory(id);
+            const p = mem.photos[photoIdx];
+            if (!p) return;
+            const item = DATA.schedule.find(s => s.id === id);
+            const baseName = (item ? item.title : 'photo').replace(/[/\\?%*:|"<>]/g, '_');
+            const fileName = `${baseName}_${photoIdx + 1}.jpg`;
+            const a = document.createElement('a');
+            a.href = p.dataUrl;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        };
+
+        window.viewPhoto = function (id, photoIdx) {
+            const mem = getMemory(id);
+            const p = mem.photos[photoIdx];
+            if (!p) return;
+            const item = DATA.schedule.find(s => s.id === id);
+            const modal = document.getElementById('modal-container');
+            const content = document.getElementById('modal-content');
+            content.innerHTML = `
+                <div class="p-4">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="font-bold text-slate-800 text-sm">${item ? item.title : ''}</h3>
+                        <button onclick="closeModal()" class="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500"><i class="fa-solid fa-times"></i></button>
+                    </div>
+                    <img src="${p.dataUrl}" alt="" class="w-full rounded-xl">
+                    <div class="flex gap-2 mt-3">
+                        <button onclick="downloadPhoto(${id}, ${photoIdx})" class="flex-1 bg-ocean-600 text-white font-bold text-sm py-3 rounded-lg">
+                            <i class="fa-solid fa-download mr-1"></i> 下載原始檔
+                        </button>
+                        <button onclick="closeModal()" class="px-6 bg-slate-100 text-slate-600 font-bold text-sm py-3 rounded-lg">關閉</button>
+                    </div>
+                    <p class="text-[10px] text-slate-400 mt-2 text-center font-mono">${p.addedAt}</p>
+                </div>`;
+            modal.classList.remove('hidden');
+        };
+
+        window.editMemo = function (id) {
+            // mark editing by injecting a hidden marker element
+            const el = document.getElementById(`memory-${id}`);
+            if (!el) return;
+            // Add the marker, then re-render
+            const marker = document.createElement('div');
+            marker.id = `memo-editing-${id}`;
+            marker.style.display = 'none';
+            el.appendChild(marker);
+            refreshMemoryUI(id);
+            // Focus textarea
+            setTimeout(() => {
+                const ta = document.getElementById(`memo-input-${id}`);
+                if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+            }, 0);
+        };
+
+        window.cancelMemo = function (id) {
+            refreshMemoryUI(id);
+        };
+
+        window.saveMemo = function (id) {
+            const ta = document.getElementById(`memo-input-${id}`);
+            if (!ta) return;
+            const text = ta.value.trim();
+            if (!State.memories[id]) State.memories[id] = { photos: [], memo: null };
+            if (text) {
+                State.memories[id].memo = { text, updatedAt: new Date().toLocaleString('zh-TW', { hour12: false }) };
+            } else {
+                State.memories[id].memo = null;
+            }
+            saveMemories();
+            refreshMemoryUI(id);
+            showToast(text ? '已儲存心得' : '已清除心得');
+        };
+
+        window.deleteMemo = function (id) {
+            if (!confirm('確定要刪除這則心得嗎？')) return;
+            if (State.memories[id]) {
+                State.memories[id].memo = null;
+                saveMemories();
+            }
+            refreshMemoryUI(id);
+            showToast('已刪除');
+        };
 
         // ==========================================
         // ACTIONS
