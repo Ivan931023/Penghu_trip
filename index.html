@@ -156,6 +156,18 @@
 
     <script>
         // ==========================================
+        // CANONICAL HOST REDIRECT
+        // ==========================================
+        // 舊 GitHub Pages 網址 (ivan931023.github.io/Penghu_trip) 因為跨網域問題
+        // 無法跑 Google 登入。如果使用者誤入舊網址，直接帶到正式網址。
+        (function () {
+            if (location.host === 'ivan931023.github.io' && location.pathname.startsWith('/Penghu_trip')) {
+                const newPath = location.pathname.replace(/^\/Penghu_trip\/?/, '/');
+                location.replace('https://penghu-trip.web.app' + newPath + location.search + location.hash);
+            }
+        })();
+
+        // ==========================================
         // DATA STORE
         // ==========================================
         const DATA = {
