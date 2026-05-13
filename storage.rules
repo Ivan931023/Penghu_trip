@@ -1,0 +1,18 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isAllowed() {
+      return request.auth != null
+        && request.auth.token.email in [
+          'ivanchen931023@gmail.com'
+          // 之後加伴侶 email 在這裡，逗號分隔
+          // , 'partner@gmail.com'
+        ];
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if isAllowed();
+    }
+  }
+}

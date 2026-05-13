@@ -1,0 +1,18 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAllowed() {
+      return request.auth != null
+        && request.auth.token.email in [
+          'ivanchen931023@gmail.com'
+          // 之後加伴侶 email 在這裡，逗號分隔
+          // , 'partner@gmail.com'
+        ];
+    }
+
+    match /{document=**} {
+      allow read, write: if isAllowed();
+    }
+  }
+}
