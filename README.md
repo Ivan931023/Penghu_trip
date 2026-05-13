@@ -4,7 +4,7 @@
 
 一份個人化的澎湖旅遊行動指南 — 從機票、住宿、行程、租車、浮潛、美食到緊急聯絡，全部整合在單一頁面，仿 iOS App 操作介面，行動裝置體驗最佳。
 
-🌐 **Live demo**：[`index.html`](./index.html) (推上 GitHub Pages 後即可開啟)
+🌐 **Live demo**：https://penghu-trip.web.app （Firebase Hosting · 支援 Google 登入跨裝置同步）
 
 ---
 
@@ -75,19 +75,29 @@
 
 無需建置流程，所有資源透過 CDN 載入。
 
-### 線上 (GitHub Pages)
+### 線上 (Firebase Hosting)
 
-開啟 Settings → Pages → 選 `main` branch → 儲存後即可由 `https://<username>.github.io/Penghu_trip/` 開啟。
+正式網址：**https://penghu-trip.web.app**
+
+> 為何不用 GitHub Pages？因為 Google 登入需要網站網域跟 Firebase Auth 處理器
+> 同網域，跨網域時瀏覽器會擋第三方 cookie 導致登入後 `currentUser` 是 null。
+> Firebase Hosting 的 `*.web.app` 跟 `*.firebaseapp.com` 是同源信任，無此問題。
 
 ### 本地
 
 ```bash
-# macOS 直接開
+# macOS 直接開（無雲端同步，僅瀏覽 UI）
 open index.html
 
-# 或啟動本地伺服器
-python3 -m http.server 8000
-# 瀏覽器開 http://localhost:8000/
+# 或本地預覽（含 Firebase 連線）
+firebase emulators:start --only hosting
+# 預設開在 http://localhost:5000
+```
+
+### 部署
+
+```bash
+firebase deploy --only hosting
 ```
 
 > 行程打卡、記帳資料以 `localStorage` 儲存於瀏覽器，**不會上傳到任何伺服器**。
@@ -108,7 +118,9 @@ python3 -m http.server 8000
 
 ```
 Penghu_trip/
-├── index.html      # 主程式：手機 App 指揮中心
+├── index.html       # 主程式：手機 App 指揮中心
+├── firebase.json    # Firebase Hosting 設定
+├── .firebaserc      # Firebase 專案綁定
 ├── README.md
 └── .gitignore
 ```
