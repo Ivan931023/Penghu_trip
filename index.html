@@ -78,7 +78,7 @@
     </style>
 </head>
 
-<body class="text-slate-800 antialiased h-screen flex flex-col overflow-hidden bg-slate-50">
+<body class="text-slate-800 antialiased flex flex-col overflow-hidden bg-slate-50" style="height: 100dvh; height: 100svh;">
 
     <!-- Login Overlay -->
     <div id="login-overlay" class="fixed inset-0 z-[100] bg-gradient-to-br from-ocean-500 via-ocean-600 to-ocean-800 flex items-center justify-center p-6">
@@ -452,7 +452,11 @@
         function rerenderCurrent() {
             const app = document.getElementById('app');
             if (!app) return;
+            const prevScroll = app.scrollTop;
             app.innerHTML = pages[State.currentTab]();
+            // Restore scroll if user was deep in the page (don't yank them to top
+            // unless they were already near top)
+            if (prevScroll > 50) app.scrollTop = prevScroll;
             if (State.currentTab === 'dashboard') fetchWeather();
             if (State.currentTab === 'schedule') initSchedule();
         }
