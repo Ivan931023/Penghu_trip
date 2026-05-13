@@ -17,6 +17,12 @@
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Firebase (compat libs for classic script use) -->
+    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-storage-compat.js"></script>
     <script>
         tailwind.config = {
             theme: {
@@ -73,6 +79,29 @@
 </head>
 
 <body class="text-slate-800 antialiased h-screen flex flex-col overflow-hidden bg-slate-50">
+
+    <!-- Login Overlay -->
+    <div id="login-overlay" class="fixed inset-0 z-[100] bg-gradient-to-br from-ocean-500 via-ocean-600 to-ocean-800 flex items-center justify-center p-6">
+        <div class="bg-white rounded-3xl p-8 shadow-2xl w-full max-w-sm text-center relative overflow-hidden">
+            <div class="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-ocean-400 to-ocean-600"></div>
+            <div class="h-20 w-20 bg-ocean-100 text-ocean-600 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl shadow-inner">
+                <i class="fa-solid fa-umbrella-beach"></i>
+            </div>
+            <h2 class="text-2xl font-bold text-slate-800 mb-1">菊島漫遊指揮中心</h2>
+            <p class="text-slate-500 text-sm mb-6">Penghu 4D3N · 2026/06/26 - 29</p>
+            <button onclick="signIn()" id="signin-btn" class="w-full bg-white border-2 border-slate-200 hover:bg-slate-50 hover:border-ocean-300 transition py-3 px-4 rounded-xl flex items-center justify-center gap-3 font-semibold text-slate-700 shadow-sm">
+                <svg class="w-5 h-5" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                </svg>
+                使用 Google 登入
+            </button>
+            <p class="text-xs text-slate-400 mt-4">僅授權帳號可存取本系統</p>
+            <p id="login-error" class="hidden mt-4 text-sm text-rose-500 font-medium bg-rose-50 border border-rose-100 rounded-lg p-3"></p>
+        </div>
+    </div>
 
     <!-- Main Content Area / Router View -->
     <main id="app" class="flex-1 overflow-y-auto no-scrollbar pb-24 pt-safe relative">
@@ -247,10 +276,149 @@
         // ==========================================
         const State = {
             currentTab: 'dashboard',
-            expenses: JSON.parse(localStorage.getItem('penghu_expenses') || '[]'),
-            memories: JSON.parse(localStorage.getItem('penghu_memories') || '{}'),
-            weather: null // populated by fetchWeather()
+            user: null,         // { email, displayName, photoURL }
+            expenses: [],       // synced from Firestore
+            memories: {},       // synced from Firestore { [itemId]: { photos, memo } }
+            checks: {},         // synced from Firestore { [itemId]: bool }
+            weather: null,      // populated by fetchWeather()
+            listenersAttached: false
         };
+
+        // ==========================================
+        // FIREBASE INIT
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyA_JOo8sOABfjE9IwCpXYx30H8Bf4RP2FI",
+            authDomain: "penghu-trip.firebaseapp.com",
+            projectId: "penghu-trip",
+            storageBucket: "penghu-trip.firebasestorage.app",
+            messagingSenderId: "837054014462",
+            appId: "1:837054014462:web:d67567c070f0d7393156af",
+            measurementId: "G-V9LCXKS28T"
+        };
+
+        // Client-side allowlist (server-side rules are the real protection)
+        const ALLOWED_EMAILS = [
+            'ivanchen931023@gmail.com'
+            // 加伴侶 email 在這裡，例: , 'partner@gmail.com'
+        ];
+
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        const storage = firebase.storage();
+
+        // Offline persistence — writes queue when offline and sync on reconnect
+        db.enablePersistence({ synchronizeTabs: true }).catch(err => {
+            console.warn('Firestore persistence:', err.code);
+        });
+
+        const googleProvider = new firebase.auth.GoogleAuthProvider();
+
+        window.signIn = async function () {
+            const btn = document.getElementById('signin-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 登入中...';
+            try {
+                await auth.signInWithPopup(googleProvider);
+            } catch (err) {
+                console.error('Sign-in error:', err);
+                showLoginError(err.message || '登入失敗');
+                btn.disabled = false;
+                btn.innerHTML = '<svg class="w-5 h-5" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg> 使用 Google 登入';
+            }
+        };
+
+        window.signOut = async function () {
+            if (!confirm('確定要登出嗎？')) return;
+            await auth.signOut();
+        };
+
+        function showLoginError(msg) {
+            const el = document.getElementById('login-error');
+            el.textContent = msg;
+            el.classList.remove('hidden');
+        }
+        function hideLoginError() {
+            document.getElementById('login-error').classList.add('hidden');
+        }
+
+        auth.onAuthStateChanged(async user => {
+            if (!user) {
+                // Not signed in — show login
+                document.getElementById('login-overlay').classList.remove('hidden');
+                State.user = null;
+                return;
+            }
+            if (!ALLOWED_EMAILS.includes(user.email)) {
+                showLoginError(`${user.email}\n不在受邀名單中。請聯絡管理員加入。`);
+                await auth.signOut();
+                return;
+            }
+            // Authenticated & authorized
+            State.user = {
+                email: user.email,
+                displayName: user.displayName || user.email.split('@')[0],
+                photoURL: user.photoURL || ''
+            };
+            hideLoginError();
+            document.getElementById('login-overlay').classList.add('hidden');
+            attachListeners();
+            router.navigate('dashboard');
+        });
+
+        // ==========================================
+        // FIRESTORE LISTENERS (real-time sync)
+        // ==========================================
+        function attachListeners() {
+            if (State.listenersAttached) return;
+            State.listenersAttached = true;
+
+            // Expenses → re-render accounting/dashboard
+            db.collection('expenses').orderBy('createdAt', 'asc').onSnapshot(snap => {
+                State.expenses = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                if (State.currentTab === 'accounting' || State.currentTab === 'dashboard') {
+                    rerenderCurrent();
+                }
+            }, err => console.error('Expenses listener:', err));
+
+            // Memories → refresh affected items in schedule
+            db.collection('memories').onSnapshot(snap => {
+                const newMem = {};
+                snap.docs.forEach(d => { newMem[d.id] = d.data(); });
+                State.memories = newMem;
+                if (State.currentTab === 'schedule') {
+                    DATA.schedule.forEach(item => {
+                        const el = document.getElementById(`memory-${item.id}`);
+                        if (el && !document.getElementById(`memo-editing-${item.id}`)) {
+                            el.innerHTML = renderMemoryUI(item.id);
+                        }
+                    });
+                }
+            }, err => console.error('Memories listener:', err));
+
+            // Checks (single doc)
+            db.collection('app').doc('checks').onSnapshot(doc => {
+                State.checks = doc.exists ? (doc.data() || {}) : {};
+                if (State.currentTab === 'schedule') {
+                    const activeTab = document.querySelector('#schedule-tabs button.bg-ocean-50');
+                    if (activeTab) {
+                        const d = parseInt(activeTab.id.replace('tab-btn-', ''), 10);
+                        renderScheduleList(d);
+                    }
+                } else if (State.currentTab === 'dashboard') {
+                    rerenderCurrent();
+                }
+            }, err => console.error('Checks listener:', err));
+        }
+
+        function rerenderCurrent() {
+            const app = document.getElementById('app');
+            if (!app) return;
+            app.innerHTML = pages[State.currentTab]();
+            if (State.currentTab === 'dashboard') fetchWeather();
+            if (State.currentTab === 'schedule') initSchedule();
+        }
 
         // 馬公座標 — for weather forecasting
         const PENGHU_COORDS = { lat: 23.5654, lon: 119.5867 };
@@ -930,7 +1098,28 @@
                         <div class="flex justify-between"><span class="text-slate-500">期間</span><span class="font-semibold text-slate-800">${DATA.config.tripStart} → ${DATA.config.tripEnd}</span></div>
                     </div>
 
-                    <p class="text-center text-xs text-slate-400 mt-8 mb-4">菊島漫遊指揮中心 v1.0</p>
+                    <!-- 帳號 -->
+                    ${State.user ? `
+                    <h3 class="font-bold text-slate-800 mt-8 mb-3 px-1 flex items-center gap-2">
+                        <i class="fa-solid fa-user-shield text-ocean-500"></i> 登入帳號
+                    </h3>
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5 flex items-center gap-3 mb-4">
+                        ${State.user.photoURL
+                            ? `<img src="${State.user.photoURL}" alt="" class="w-12 h-12 rounded-full" referrerpolicy="no-referrer">`
+                            : `<div class="w-12 h-12 rounded-full bg-ocean-100 text-ocean-600 flex items-center justify-center font-bold">${State.user.displayName.charAt(0).toUpperCase()}</div>`
+                        }
+                        <div class="flex-1 min-w-0">
+                            <p class="font-bold text-slate-800 text-sm truncate">${State.user.displayName}</p>
+                            <p class="text-xs text-slate-500 truncate">${State.user.email}</p>
+                        </div>
+                    </div>
+                    <button onclick="signOut()" class="w-full bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-3 rounded-xl transition mb-2">
+                        <i class="fa-solid fa-right-from-bracket mr-2"></i> 登出
+                    </button>
+                    <p class="text-center text-[10px] text-emerald-500 mt-2"><i class="fa-solid fa-cloud"></i> 雲端同步已開啟 · 資料即時更新</p>
+                    ` : ''}
+
+                    <p class="text-center text-xs text-slate-400 mt-6 mb-4">菊島漫遊指揮中心 v2.0</p>
                 </div>
                 `;
             }
@@ -987,7 +1176,7 @@
                 return;
             }
 
-            const doneSet = JSON.parse(localStorage.getItem('penghu_checks') || '{}');
+            const doneSet = State.checks || {};
 
             listContainer.innerHTML = items.map(item => {
                 const done = !!doneSet[item.id];
@@ -1039,14 +1228,8 @@
             return State.memories[id] || { photos: [], memo: null };
         }
 
-        function saveMemories() {
-            try {
-                localStorage.setItem('penghu_memories', JSON.stringify(State.memories));
-                return true;
-            } catch (e) {
-                showToast('儲存空間已滿，請刪除一些舊照片', 'error');
-                return false;
-            }
+        function memDocRef(id) {
+            return db.collection('memories').doc(String(id));
         }
 
         function escapeHtml(s) {
@@ -1057,17 +1240,18 @@
             const mem = getMemory(id);
             const editing = !!document.getElementById(`memo-editing-${id}`);
 
-            const photosHtml = mem.photos.length > 0
+            const photosHtml = mem.photos && mem.photos.length > 0
                 ? `<div class="grid grid-cols-3 gap-2 mb-3">
                     ${mem.photos.map((p, i) => `
                         <div class="relative aspect-square rounded-lg overflow-hidden bg-slate-100 group">
-                            <img src="${p.dataUrl}" alt="" class="w-full h-full object-cover cursor-pointer" onclick="event.stopPropagation(); viewPhoto(${id}, ${i})">
+                            <img src="${p.url || p.dataUrl}" alt="" loading="lazy" class="w-full h-full object-cover cursor-pointer" onclick="event.stopPropagation(); viewPhoto(${id}, ${i})">
                             <button onclick="event.stopPropagation(); downloadPhoto(${id}, ${i})" class="absolute bottom-1 left-1 w-7 h-7 bg-white/90 rounded-full flex items-center justify-center text-slate-700 hover:bg-white shadow text-xs">
                                 <i class="fa-solid fa-download"></i>
                             </button>
                             <button onclick="event.stopPropagation(); deletePhoto(${id}, '${p.id}')" class="absolute top-1 right-1 w-7 h-7 bg-rose-500/90 rounded-full flex items-center justify-center text-white hover:bg-rose-600 shadow text-xs">
                                 <i class="fa-solid fa-trash-can"></i>
                             </button>
+                            ${p.addedBy ? `<div class="absolute bottom-0 right-0 left-0 bg-gradient-to-t from-black/60 to-transparent px-1.5 py-0.5 text-[9px] text-white truncate">${escapeHtml(p.addedBy.displayName || p.addedBy.email || '')}</div>` : ''}
                         </div>
                     `).join('')}
                 </div>`
@@ -1089,7 +1273,7 @@
                 : memoSaved
                     ? `<div class="bg-amber-50/60 border border-amber-100 rounded-lg p-3">
                         <p class="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">${escapeHtml(mem.memo.text)}</p>
-                        <p class="text-[10px] text-slate-400 mt-2 font-mono">${mem.memo.updatedAt}</p>
+                        <p class="text-[10px] text-slate-400 mt-2 font-mono">${mem.memo.updatedAt}${mem.memo.updatedBy ? ' · ' + escapeHtml(mem.memo.updatedBy.displayName || mem.memo.updatedBy.email || '') : ''}</p>
                         <div class="flex gap-3 mt-2 text-xs">
                             <button onclick="event.stopPropagation(); editMemo(${id})" class="text-ocean-600 font-bold hover:underline">
                                 <i class="fa-solid fa-pen mr-1"></i> 編輯
@@ -1156,80 +1340,111 @@
         window.addPhotos = async function (id, fileList) {
             const files = Array.from(fileList).filter(f => f.type.startsWith('image/'));
             if (files.length === 0) return;
-            showToast(`處理 ${files.length} 張照片中...`);
+            if (!State.user) { showToast('請先登入', 'error'); return; }
 
-            const mem = getMemory(id);
-            if (!State.memories[id]) State.memories[id] = { photos: [], memo: null };
+            showToast(`上傳 ${files.length} 張中...`);
+            let success = 0;
 
             for (const f of files) {
                 try {
                     const dataUrl = await compressImage(f);
-                    State.memories[id].photos.push({
-                        id: 'p' + Date.now() + Math.random().toString(36).slice(2, 6),
-                        dataUrl,
+                    const blob = await (await fetch(dataUrl)).blob();
+                    const photoId = 'p' + Date.now() + Math.random().toString(36).slice(2, 6);
+                    const path = `memories/${id}/${photoId}.jpg`;
+                    const ref = storage.ref(path);
+                    await ref.put(blob, { contentType: 'image/jpeg' });
+                    const url = await ref.getDownloadURL();
+
+                    const photo = {
+                        id: photoId,
+                        storagePath: path,
+                        url,
                         name: f.name,
-                        addedAt: new Date().toLocaleString('zh-TW', { hour12: false })
-                    });
+                        addedAt: new Date().toLocaleString('zh-TW', { hour12: false }),
+                        addedBy: { email: State.user.email, displayName: State.user.displayName }
+                    };
+
+                    await memDocRef(id).set({
+                        photos: firebase.firestore.FieldValue.arrayUnion(photo)
+                    }, { merge: true });
+                    success++;
                 } catch (err) {
-                    console.error('Compress failed for', f.name, err);
+                    console.error('Upload failed:', f.name, err);
                 }
             }
 
-            if (saveMemories()) {
-                showToast(`已新增 ${files.length} 張照片`);
-            } else {
-                // Roll back: remove just-added if save failed
-                State.memories[id].photos.splice(-files.length);
-            }
-            refreshMemoryUI(id);
+            showToast(success === files.length ? `已上傳 ${success} 張` : `${success}/${files.length} 張成功`, success > 0 ? 'success' : 'error');
         };
 
-        window.deletePhoto = function (id, photoId) {
+        window.deletePhoto = async function (id, photoId) {
             if (!confirm('確定要刪除這張照片嗎？')) return;
             const mem = State.memories[id];
-            if (!mem) return;
-            mem.photos = mem.photos.filter(p => p.id !== photoId);
-            saveMemories();
-            refreshMemoryUI(id);
-            showToast('已刪除');
+            if (!mem || !mem.photos) return;
+            const photo = mem.photos.find(p => p.id === photoId);
+            if (!photo) return;
+
+            try {
+                // Remove from Storage first (silently fail if already gone)
+                if (photo.storagePath) {
+                    await storage.ref(photo.storagePath).delete().catch(() => {});
+                }
+                await memDocRef(id).update({
+                    photos: firebase.firestore.FieldValue.arrayRemove(photo)
+                });
+                showToast('已刪除');
+            } catch (err) {
+                console.error('Delete photo failed:', err);
+                showToast('刪除失敗: ' + err.message, 'error');
+            }
         };
 
-        window.downloadPhoto = function (id, photoIdx) {
+        window.downloadPhoto = async function (id, photoIdx) {
             const mem = getMemory(id);
-            const p = mem.photos[photoIdx];
+            const p = mem.photos && mem.photos[photoIdx];
             if (!p) return;
             const item = DATA.schedule.find(s => s.id === id);
             const baseName = (item ? item.title : 'photo').replace(/[/\\?%*:|"<>]/g, '_');
             const fileName = `${baseName}_${photoIdx + 1}.jpg`;
-            const a = document.createElement('a');
-            a.href = p.dataUrl;
-            a.download = fileName;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
+            const src = p.url || p.dataUrl;
+            try {
+                const res = await fetch(src);
+                const blob = await res.blob();
+                const objectUrl = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = objectUrl;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+            } catch (err) {
+                // Fallback: open in new tab so user can save manually
+                window.open(src, '_blank');
+            }
         };
 
         window.viewPhoto = function (id, photoIdx) {
             const mem = getMemory(id);
-            const p = mem.photos[photoIdx];
+            const p = mem.photos && mem.photos[photoIdx];
             if (!p) return;
             const item = DATA.schedule.find(s => s.id === id);
             const modal = document.getElementById('modal-container');
             const content = document.getElementById('modal-content');
+            const src = p.url || p.dataUrl;
             content.innerHTML = `
                 <div class="p-4">
                     <div class="flex justify-between items-center mb-3">
                         <h3 class="font-bold text-slate-800 text-sm">${item ? item.title : ''}</h3>
                         <button onclick="closeModal()" class="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500"><i class="fa-solid fa-times"></i></button>
                     </div>
-                    <img src="${p.dataUrl}" alt="" class="w-full rounded-xl">
+                    <img src="${src}" alt="" class="w-full rounded-xl">
                     <div class="flex gap-2 mt-3">
                         <button onclick="downloadPhoto(${id}, ${photoIdx})" class="flex-1 bg-ocean-600 text-white font-bold text-sm py-3 rounded-lg">
                             <i class="fa-solid fa-download mr-1"></i> 下載原始檔
                         </button>
                         <button onclick="closeModal()" class="px-6 bg-slate-100 text-slate-600 font-bold text-sm py-3 rounded-lg">關閉</button>
                     </div>
-                    <p class="text-[10px] text-slate-400 mt-2 text-center font-mono">${p.addedAt}</p>
+                    <p class="text-[10px] text-slate-400 mt-2 text-center font-mono">${p.addedAt}${p.addedBy ? ' · ' + escapeHtml(p.addedBy.displayName || p.addedBy.email || '') : ''}</p>
                 </div>`;
             modal.classList.remove('hidden');
         };
@@ -1255,29 +1470,44 @@
             refreshMemoryUI(id);
         };
 
-        window.saveMemo = function (id) {
+        window.saveMemo = async function (id) {
             const ta = document.getElementById(`memo-input-${id}`);
             if (!ta) return;
+            if (!State.user) { showToast('請先登入', 'error'); return; }
             const text = ta.value.trim();
-            if (!State.memories[id]) State.memories[id] = { photos: [], memo: null };
-            if (text) {
-                State.memories[id].memo = { text, updatedAt: new Date().toLocaleString('zh-TW', { hour12: false }) };
-            } else {
-                State.memories[id].memo = null;
+            try {
+                if (text) {
+                    await memDocRef(id).set({
+                        memo: {
+                            text,
+                            updatedAt: new Date().toLocaleString('zh-TW', { hour12: false }),
+                            updatedBy: { email: State.user.email, displayName: State.user.displayName }
+                        }
+                    }, { merge: true });
+                    showToast('已儲存心得');
+                } else {
+                    await memDocRef(id).update({
+                        memo: firebase.firestore.FieldValue.delete()
+                    });
+                    showToast('已清除心得');
+                }
+            } catch (err) {
+                console.error('Save memo failed:', err);
+                showToast('同步失敗: ' + err.message, 'error');
             }
-            saveMemories();
-            refreshMemoryUI(id);
-            showToast(text ? '已儲存心得' : '已清除心得');
         };
 
-        window.deleteMemo = function (id) {
+        window.deleteMemo = async function (id) {
             if (!confirm('確定要刪除這則心得嗎？')) return;
-            if (State.memories[id]) {
-                State.memories[id].memo = null;
-                saveMemories();
+            try {
+                await memDocRef(id).update({
+                    memo: firebase.firestore.FieldValue.delete()
+                });
+                showToast('已刪除');
+            } catch (err) {
+                console.error('Delete memo failed:', err);
+                showToast('同步失敗: ' + err.message, 'error');
             }
-            refreshMemoryUI(id);
-            showToast('已刪除');
         };
 
         // ==========================================
@@ -1288,41 +1518,52 @@
             if (el) el.classList.toggle('hidden');
         }
 
-        window.toggleCheck = function (id) {
-            const doneSet = JSON.parse(localStorage.getItem('penghu_checks') || '{}');
-            doneSet[id] = !doneSet[id];
-            if (!doneSet[id]) delete doneSet[id];
-            localStorage.setItem('penghu_checks', JSON.stringify(doneSet));
-            // Re-render current day
-            const activeTab = document.querySelector('#schedule-tabs button.bg-ocean-50');
-            if (activeTab) {
-                const d = parseInt(activeTab.id.replace('tab-btn-', ''));
-                renderScheduleList(d);
+        window.toggleCheck = async function (id) {
+            const newVal = !State.checks[id];
+            try {
+                if (newVal) {
+                    await db.collection('app').doc('checks').set({ [id]: true }, { merge: true });
+                } else {
+                    await db.collection('app').doc('checks').update({
+                        [id]: firebase.firestore.FieldValue.delete()
+                    });
+                }
+            } catch (err) {
+                console.error('Toggle check failed:', err);
+                showToast('同步失敗: ' + err.message, 'error');
             }
         };
 
-        function addExpense(e) {
+        async function addExpense(e) {
             e.preventDefault();
             const fd = new FormData(e.target);
-            const expense = {
-                id: String(Date.now()),
+            const payload = {
                 item: fd.get('item'),
                 amount: parseInt(fd.get('amount'), 10) || 0,
                 category: fd.get('category'),
                 notes: fd.get('notes') || '',
-                date: new Date().toLocaleDateString('zh-TW')
+                date: new Date().toLocaleDateString('zh-TW'),
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                createdBy: State.user ? { email: State.user.email, displayName: State.user.displayName } : null
             };
-            State.expenses.push(expense);
-            localStorage.setItem('penghu_expenses', JSON.stringify(State.expenses));
-            showToast('已新增支出');
-            router.navigate('accounting');
+            try {
+                await db.collection('expenses').add(payload);
+                showToast('已新增支出');
+                e.target.reset();
+            } catch (err) {
+                console.error('Add expense failed:', err);
+                showToast('同步失敗: ' + err.message, 'error');
+            }
         }
 
-        window.deleteExpense = function (id) {
-            State.expenses = State.expenses.filter(e => e.id !== id);
-            localStorage.setItem('penghu_expenses', JSON.stringify(State.expenses));
-            showToast('已刪除');
-            router.navigate('accounting');
+        window.deleteExpense = async function (id) {
+            try {
+                await db.collection('expenses').doc(id).delete();
+                showToast('已刪除');
+            } catch (err) {
+                console.error('Delete expense failed:', err);
+                showToast('同步失敗: ' + err.message, 'error');
+            }
         };
 
         window.closeModal = function () {
@@ -1342,8 +1583,9 @@
             }, 3000);
         };
 
-        // Init
-        router.navigate('dashboard');
+        // App initializes via auth.onAuthStateChanged above:
+        //   not signed in → login overlay shown
+        //   signed in & allowed → listeners attached, dashboard rendered
     </script>
 </body>
 
