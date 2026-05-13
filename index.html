@@ -289,7 +289,9 @@
         // ==========================================
         const firebaseConfig = {
             apiKey: "AIzaSyA_JOo8sOABfjE9IwCpXYx30H8Bf4RP2FI",
-            authDomain: "penghu-trip.firebaseapp.com",
+            // authDomain 必須與網站 origin 同源，避免瀏覽器擋第三方 cookie
+            // Firebase Hosting 在你的網域自動提供 /__/auth/handler 與 /__/auth/iframe
+            authDomain: "penghu-trip.web.app",
             projectId: "penghu-trip",
             storageBucket: "penghu-trip.firebasestorage.app",
             messagingSenderId: "837054014462",
