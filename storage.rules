@@ -5,9 +5,8 @@ service firebase.storage {
     function isAllowed() {
       return request.auth != null
         && request.auth.token.email in [
-          'ivanchen931023@gmail.com'
-          // 之後加伴侶 email 在這裡，逗號分隔
-          // , 'partner@gmail.com'
+          'ivanchen931023@gmail.com',
+          'yiyiz1120@gmail.com'
         ];
     }
 
