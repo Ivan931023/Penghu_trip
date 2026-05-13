@@ -1,4 +1,4 @@
-# 菊島漫遊 · Penghu 4D3N
+# Ivan x Ying's Penghu trip · 4D3N
 
 > 2026 年 6 月 26-29 日 · 兩人 · 4 天 3 夜澎湖之旅 · 手機 App 風格旅遊指揮中心
 

@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>菊島漫遊指揮中心</title>
+    <title>Ivan x Ying's Penghu trip</title>
 
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -87,7 +87,7 @@
             <div class="h-20 w-20 bg-ocean-100 text-ocean-600 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl shadow-inner">
                 <i class="fa-solid fa-umbrella-beach"></i>
             </div>
-            <h2 class="text-2xl font-bold text-slate-800 mb-1">菊島漫遊指揮中心</h2>
+            <h2 class="text-2xl font-bold text-slate-800 mb-1">Ivan x Ying's Penghu trip</h2>
             <p class="text-slate-500 text-sm mb-6">Penghu 4D3N · 2026/06/26 - 29</p>
             <button onclick="signIn()" id="signin-btn" class="w-full bg-white border-2 border-slate-200 hover:bg-slate-50 hover:border-ocean-300 transition py-3 px-4 rounded-xl flex items-center justify-center gap-3 font-semibold text-slate-700 shadow-sm">
                 <svg class="w-5 h-5" viewBox="0 0 24 24">
@@ -160,7 +160,7 @@
         // ==========================================
         const DATA = {
             config: {
-                tripName: "菊島漫遊 · Penghu 2026",
+                tripName: "Ivan x Ying's Penghu trip",
                 currency: "TWD",
                 tripStart: "2026-06-26",
                 tripEnd: "2026-06-29",
@@ -280,6 +280,7 @@
             expenses: [],       // synced from Firestore
             memories: {},       // synced from Firestore { [itemId]: { photos, memo } }
             checks: {},         // synced from Firestore { [itemId]: bool }
+            totalBudget: null,  // synced from Firestore app/config; null = use DATA fallback
             weather: null,      // populated by fetchWeather()
             listenersAttached: false
         };
@@ -423,6 +424,15 @@
                     });
                 }
             }, err => console.error('Memories listener:', err));
+
+            // Config (total budget, etc.) — single doc
+            db.collection('app').doc('config').onSnapshot(doc => {
+                const data = doc.exists ? (doc.data() || {}) : {};
+                State.totalBudget = data.totalBudget != null ? data.totalBudget : null;
+                if (State.currentTab === 'accounting' && !document.getElementById('budget-editing')) {
+                    rerenderCurrent();
+                }
+            }, err => console.error('Config listener:', err));
 
             // Checks (single doc)
             db.collection('app').doc('checks').onSnapshot(doc => {
@@ -970,19 +980,51 @@
 
             accounting: () => {
                 const totalSpent = State.expenses.reduce((acc, e) => acc + e.amount, 0);
-                const remaining = DATA.accounting.totalBudget - totalSpent;
+                const totalBudget = State.totalBudget != null ? State.totalBudget : DATA.accounting.totalBudget;
+                const remaining = totalBudget - totalSpent;
+                const editingBudget = !!document.getElementById('budget-editing');
+
+                const budgetCard = editingBudget
+                    ? `<div class="bg-gradient-to-br from-ocean-500 to-ocean-700 text-white p-5 rounded-xl shadow-lg mb-4">
+                        <label class="text-ocean-100 text-xs font-bold uppercase block mb-2">調整總預算</label>
+                        <div class="flex items-center gap-2 mb-3">
+                            <span class="text-2xl font-bold">NT$</span>
+                            <input type="number" id="budget-input" inputmode="numeric" value="${totalBudget}" min="0" step="100" class="flex-1 bg-white/20 border border-white/30 rounded-lg px-3 py-2 text-xl font-bold text-white placeholder-ocean-100 focus:outline-none focus:bg-white/30">
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="saveBudget()" class="flex-1 bg-white text-ocean-700 font-bold text-sm py-2 rounded-lg">
+                                <i class="fa-solid fa-floppy-disk mr-1"></i> 儲存
+                            </button>
+                            <button onclick="cancelEditBudget()" class="px-4 bg-white/20 hover:bg-white/30 text-white font-bold text-sm py-2 rounded-lg">
+                                取消
+                            </button>
+                        </div>
+                    </div>`
+                    : `<div class="bg-gradient-to-br from-ocean-500 to-ocean-700 text-white p-5 rounded-xl shadow-lg mb-4 flex justify-between items-center">
+                        <div>
+                            <p class="text-ocean-100 text-xs font-bold uppercase mb-1">總預算</p>
+                            <p class="text-3xl font-bold tracking-tight">NT$ ${totalBudget.toLocaleString()}</p>
+                        </div>
+                        <button onclick="editBudget()" class="h-10 w-10 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition" title="編輯預算">
+                            <i class="fa-solid fa-pen text-white"></i>
+                        </button>
+                    </div>`;
 
                 return `
                 <div class="p-6 fade-in max-w-md mx-auto">
                     <header class="mb-6">
                         <h1 class="text-2xl font-bold text-slate-800">記帳</h1>
-                        <p class="text-xs text-slate-400 mt-1">本地儲存 · 不上傳</p>
+                        <p class="text-xs text-emerald-600 mt-1 flex items-center gap-1">
+                            <i class="fa-solid fa-cloud"></i> 雲端同步 · 兩人即時共享
+                        </p>
                     </header>
+
+                    ${budgetCard}
 
                     <div class="grid grid-cols-2 gap-4 mb-8">
                         <div class="bg-slate-800 text-white p-5 rounded-xl shadow-lg">
                             <p class="text-slate-400 text-xs font-bold uppercase mb-1">剩餘預算</p>
-                            <p id="val-remaining" class="text-2xl font-bold tracking-tight">NT$ ${remaining.toLocaleString()}</p>
+                            <p id="val-remaining" class="text-2xl font-bold tracking-tight ${remaining < 0 ? 'text-rose-300' : ''}">NT$ ${remaining.toLocaleString()}</p>
                         </div>
                         <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
                             <p class="text-slate-400 text-xs font-bold uppercase mb-1">總支出</p>
@@ -1146,7 +1188,7 @@
                     <p class="text-center text-[10px] text-emerald-500 mt-2"><i class="fa-solid fa-cloud"></i> 雲端同步已開啟 · 資料即時更新</p>
                     ` : ''}
 
-                    <p class="text-center text-xs text-slate-400 mt-6 mb-4">菊島漫遊指揮中心 v2.0</p>
+                    <p class="text-center text-xs text-slate-400 mt-6 mb-4">Ivan x Ying's Penghu trip · v2.1</p>
                 </div>
                 `;
             }
@@ -1713,6 +1755,42 @@
                 showToast('已刪除');
             } catch (err) {
                 console.error('Delete expense failed:', err);
+                showToast('同步失敗: ' + err.message, 'error');
+            }
+        };
+
+        // ===== Budget (Firestore app/config.totalBudget) =====
+        window.editBudget = function () {
+            if (document.getElementById('budget-editing')) return;
+            const m = document.createElement('div');
+            m.id = 'budget-editing';
+            m.style.display = 'none';
+            document.body.appendChild(m);
+            rerenderCurrent();
+            setTimeout(() => {
+                const inp = document.getElementById('budget-input');
+                if (inp) { inp.focus(); inp.select(); }
+            }, 0);
+        };
+
+        window.cancelEditBudget = function () {
+            const m = document.getElementById('budget-editing');
+            if (m) m.remove();
+            rerenderCurrent();
+        };
+
+        window.saveBudget = async function () {
+            const inp = document.getElementById('budget-input');
+            if (!inp) return;
+            const val = parseInt(inp.value, 10);
+            if (isNaN(val) || val < 0) { showToast('預算必須是正整數', 'error'); return; }
+            try {
+                await db.collection('app').doc('config').set({ totalBudget: val }, { merge: true });
+                const m = document.getElementById('budget-editing');
+                if (m) m.remove();
+                showToast('已更新預算');
+            } catch (err) {
+                console.error('Save budget failed:', err);
                 showToast('同步失敗: ' + err.message, 'error');
             }
         };
